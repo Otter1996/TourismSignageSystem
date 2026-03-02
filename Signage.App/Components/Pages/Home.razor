@@ -1,0 +1,104 @@
+﻿@page "/"
+@using Signage.Common
+@using MudBlazor
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-8">
+    <MudGrid>
+        @* --- 左側：管理設定區 --- *@
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-6" Elevation="4">
+                <MudText Typo="Typo.h5" Class="mb-4" Color="Color.Primary">看板前端版型選擇</MudText>
+                
+                <MudSelect T="LayoutType" Label="選擇前端版型" @bind-Value="_currentPage.Layout" Variant="Variant.Outlined" Class="mb-6">
+                    <MudSelectItem Value="LayoutType.TripleVertical">【經典】30/40/30 三段式</MudSelectItem>
+                    <MudSelectItem Value="LayoutType.LType">【資訊】L型側邊欄模式</MudSelectItem>
+                    <MudSelectItem Value="LayoutType.SingleFull">【簡潔】全螢幕混合模式</MudSelectItem>
+                </MudSelect>
+
+                <MudDivider Class="my-4" />
+
+                <MudText Typo="Typo.subtitle1" Class="mb-2">分區內容編輯</MudText>
+                <MudTextField @bind-Value="_currentPage.TopContent" Label="頂部跑馬燈" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
+                <MudTextField @bind-Value="_currentPage.MiddleContentUrl" Label="中部影片 URL" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
+                <MudTextField @bind-Value="_currentPage.BottomContentUrl" Label="底部圖片 URL" Variant="Variant.Filled" Margin="Margin.Dense" />
+
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-6 py-3" StartIcon="@Icons.Material.Filled.Tv">
+                    發送設定至終端看板
+                </MudButton>
+            </MudPaper>
+        </MudItem>
+
+        @* --- 右側：前端畫面實時模擬 --- *@
+        <MudItem xs="12" md="8">
+            <MudText Typo="Typo.h6" Class="mb-2" Align="Align.Center">
+                <MudIcon Icon="@Icons.Material.Filled.DesktopWindows" Class="mr-2" /> 終端實體預覽 (16:9)
+            </MudText>
+            
+            <div class="signage-tv-frame">
+                @if (_currentPage.Layout == LayoutType.TripleVertical)
+                {
+                    @* 你要求的 30/40/30 分佈 *@
+                    <div class="layout-triple">
+                        <div class="zone-marquee">
+                            <div class="marquee-content">@_currentPage.TopContent</div>
+                        </div>
+                        <div class="zone-video">
+                            <video src="@_currentPage.MiddleContentUrl" autoplay muted loop></video>
+                        </div>
+                        <div class="zone-image">
+                            <img src="@_currentPage.BottomContentUrl" />
+                        </div>
+                    </div>
+                }
+                else if (_currentPage.Layout == LayoutType.LType)
+                {
+                    <div class="layout-ltype">
+                        <div class="l-main"><video src="@_currentPage.MiddleContentUrl" autoplay muted loop></video></div>
+                        <div class="l-side">
+                            <div class="side-item">17:30</div>
+                            <div class="side-item">Zuoying 26°C</div>
+                        </div>
+                        <div class="l-footer"><div class="marquee-content">@_currentPage.TopContent</div></div>
+                    </div>
+                }
+                else
+                {
+                    <div class="layout-full">
+                        <video src="@_currentPage.MiddleContentUrl" autoplay muted loop class="full-bg"></video>
+                        <div class="overlay-text">@_currentPage.TopContent</div>
+                    </div>
+                }
+            </div>
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+<style>
+    .signage-tv-frame { width: 100%; aspect-ratio: 16/9; background: #000; border: 10px solid #333; border-radius: 4px; overflow: hidden; position: relative; }
+    
+    /* 30/40/30 佈局 */
+    .layout-triple { height: 100%; display: flex; flex-direction: column; }
+    .zone-marquee { height: 30%; background: #c62828; color: white; display: flex; align-items: center; border-bottom: 2px solid #fff; }
+    .zone-video { height: 40%; background: #000; }
+    .zone-image { height: 30%; background: #fff; }
+
+    /* L型 佈局 */
+    .layout-ltype { height: 100%; display: grid; grid-template-columns: 75% 25%; grid-template-rows: 85% 15%; }
+    .l-main { grid-column: 1; grid-row: 1; }
+    .l-side { grid-column: 2; grid-row: 1 / span 2; background: #263238; color: #ffeb3b; padding: 10px; text-align: center; }
+    .l-footer { grid-column: 1; grid-row: 2; background: #eee; display: flex; align-items: center; }
+
+    .marquee-content { white-space: nowrap; font-size: 2rem; font-weight: bold; animation: scroll 15s linear infinite; }
+    @@keyframes scroll { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
+    
+    video, img { width: 100%; height: 100%; object-fit: cover; }
+</style>
+
+@code {
+    // 這裡現在可以正確識別 SignagePage 了
+    private SignagePage _currentPage = new() {
+        TopContent = "★ 歡迎蒞臨新北市政府觀光旅遊局 ★ 最新消息：雙溪荷花季盛大開幕...",
+        MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
+        BottomContentUrl = "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=800&q=80"
+    };
+}

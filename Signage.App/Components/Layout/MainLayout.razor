@@ -1,0 +1,156 @@
+﻿@inherits LayoutComponentBase
+@using Signage.Common
+@using MudBlazor
+@using MudBlazor.Services
+@inject IDialogService DialogService
+@rendermode InteractiveServer
+
+<MudThemeProvider />
+<MudDialogProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Color="Color.Primary">
+        <MudText Typo="Typo.h5">觀光局電子看板管理系統</MudText>
+    </MudAppBar>
+
+    <MudDrawer Open="true" ClipMode="DrawerClipMode.Always" Elevation="2">
+        <MudNavMenu>
+            <MudNavGroup Title="遊客中心清單" Icon="@Icons.Material.Filled.LocationOn" Expanded="true">
+                @foreach (var center in _visitorCenters)
+                {
+                    <MudListItem T="string" OnClick="@(() => OnSelectCenter(center))">
+                        <div class="d-flex align-center justify-space-between w-100">
+                            <MudText>@center</MudText>
+                            @* 使用 span 包裹按鈕，並在此處攔截點擊事件，避免影響到 ListItem *@
+                            <span @onclick:stopPropagation="true">
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit" 
+                                               Size="Size.Small" 
+                                               OnClick="@(() => PrepareEdit(center))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                               Size="Size.Small" 
+                                               Color="Color.Error" 
+                                               OnClick="@(() => DeleteCenter(center))" />
+                            </span>
+                        </div>
+                    </MudListItem>
+                }
+            </MudNavGroup>
+
+            <MudDivider Class="my-2" />
+
+            <div class="pa-4">
+                <MudTextField @bind-Value="_inputName" 
+                              Label="@(_isEditMode ? "修改名稱" : "新增遊客中心名稱")" 
+                              Variant="Variant.Outlined" 
+                              Margin="Margin.Dense" />
+                
+                @if (_isEditMode)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Info" FullWidth="true" Class="mt-2" OnClick="UpdateCenter">
+                        確認修改
+                    </MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Default" FullWidth="true" OnClick="CancelEdit">
+                        取消
+                    </MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Secondary" FullWidth="true" Class="mt-2" OnClick="AddNewCenter">
+                        確認新增
+                    </MudButton>
+                }
+            </div>
+        </MudNavMenu>
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="my-16 pt-16">
+            @if (string.IsNullOrEmpty(_selectedCenter))
+            {
+                <MudAlert Severity="Severity.Info">請從左側選擇一個遊客中心來開始管理</MudAlert>
+            }
+            else
+            {
+                <MudText Typo="Typo.h4" GutterBottom="true">目前管理：@_selectedCenter</MudText>
+                @Body
+            }
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private List<string> _visitorCenters = new() { "左營遊客中心", "旗津遊客中心", "新北旅遊處" };
+    private string _inputName = "";
+    private string _selectedCenter = "";
+    private string _oldNameForEdit = "";
+    private bool _isEditMode = false;
+
+    private void AddNewCenter()
+    {
+        if (!string.IsNullOrWhiteSpace(_inputName))
+        {
+            _visitorCenters.Add(_inputName);
+            _inputName = "";
+        }
+    }
+
+    private async Task DeleteCenter(string name)
+    {
+        // 這裡確保使用 await 並呼叫 ShowMessageBox
+        var result = await DialogService.ShowMessageBox(
+            "警告", 
+            $"你確定要刪除「{name}」嗎？此動作無法復原。", 
+            yesText: "確認刪除", 
+            cancelText: "取消"
+        );
+
+        if (result == true)
+        {
+            _visitorCenters.Remove(name);
+            if (_selectedCenter == name) _selectedCenter = "";
+            StateHasChanged();
+        }
+    }
+
+    private async Task UpdateCenter()
+    {
+        if (string.IsNullOrWhiteSpace(_inputName)) return;
+
+        var result = await DialogService.ShowMessageBox(
+            "確認修改", 
+            $"是否將「{_oldNameForEdit}」更名為「{_inputName}」？", 
+            yesText: "確認修改", 
+            cancelText: "取消"
+        );
+
+        if (result == true)
+        {
+            var index = _visitorCenters.IndexOf(_oldNameForEdit);
+            if (index != -1)
+            {
+                _visitorCenters[index] = _inputName;
+                if (_selectedCenter == _oldNameForEdit) _selectedCenter = _inputName;
+                CancelEdit();
+            }
+        }
+    }
+
+    private void PrepareEdit(string name)
+    {
+        _isEditMode = true;
+        _oldNameForEdit = name;
+        _inputName = name;
+    }
+
+    private void CancelEdit()
+    {
+        _isEditMode = false;
+        _inputName = "";
+        _oldNameForEdit = "";
+    }
+
+    private void OnSelectCenter(string name)
+    {
+        _selectedCenter = name;
+    }
+}
