@@ -72,7 +72,9 @@
             else
             {
                 <MudText Typo="Typo.h4" GutterBottom="true">目前管理：@_selectedCenter</MudText>
+                <CascadingValue Value="_selectedCenter">
                 @Body
+                </CascadingValue>
             }
         </MudContainer>
     </MudMainContent>
