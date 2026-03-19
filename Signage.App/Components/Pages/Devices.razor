@@ -1,0 +1,425 @@
+@page "/devices"
+@using Signage.Common
+@using MudBlazor
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-6">
+    @if (string.IsNullOrEmpty(SelectedCenter))
+    {
+        <MudAlert Severity="Severity.Info">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Class="mr-2" />
+            請先從左側選單選擇一個遊客中心
+        </MudAlert>
+    }
+    else
+    {
+        @if (_isBusy)
+        {
+            <MudPaper Class="pa-3 mb-4" Elevation="1">
+                <MudProgressLinear Indeterminate="true" Color="Color.Info" Class="mb-2" />
+                <MudText Typo="Typo.caption">@_busyMessage</MudText>
+            </MudPaper>
+        }
+
+        <MudGrid>
+            <!-- 左側：設備註冊 -->
+            <MudItem xs="12" md="4">
+                <MudPaper Class="pa-6" Elevation="4">
+                    <MudText Typo="Typo.h5" Color="Color.Primary" Class="mb-4">
+                        <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-2" />
+                        新增設備
+                    </MudText>
+
+                    <MudTextField @bind-Value="_deviceName" 
+                                  Label="設備名稱（如：看板-01）" 
+                                  Variant="Variant.Filled" 
+                                  Margin="Margin.Dense" 
+                                  Class="mb-3"
+                                  HelperText="輸入易於識別的設備名稱" />
+                    
+                    <MudTextField @bind-Value="_deviceIp" 
+                                  Label="設備 IP 地址（選填）" 
+                                  Variant="Variant.Filled" 
+                                  Margin="Margin.Dense" 
+                                  Class="mb-3"
+                                  HelperText="例如：192.168.1.100" />
+
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="RegisterDevice" Class="mb-2" Disabled="@_isBusy">
+                        <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-2" />
+                        註冊設備
+                    </MudButton>
+
+                    <MudAlert Severity="Severity.Info" Class="mt-4">
+                        <strong>💡 設備連接:</strong> 設備連接後會自動更新在線狀態。
+                    </MudAlert>
+
+                    <MudDivider Class="my-4" />
+
+                    <!-- 設備狀態摘要 -->
+                    <MudText Typo="Typo.subtitle2" Class="mb-3">
+                        <MudIcon Icon="@Icons.Material.Filled.BarChart" Size="Size.Small" Class="mr-1" />
+                        狀態摘要
+                    </MudText>
+
+                    <MudPaper Class="pa-3 mb-2" Elevation="0" Style="background-color: rgba(76, 175, 80, 0.1);">
+                        <div class="d-flex align-center justify-space-between">
+                            <MudText Typo="Typo.body2">
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" Class="mr-1" />
+                                在線設備
+                            </MudText>
+                            <MudChip T="string" Text="@_devices.Count(d => d.IsOnline).ToString()" 
+                                     Color="Color.Success" 
+                                     Variant="Variant.Filled" 
+                                     Size="Size.Small" />
+                        </div>
+                    </MudPaper>
+
+                    <MudPaper Class="pa-3 mb-2" Elevation="0" Style="background-color: rgba(244, 67, 54, 0.1);">
+                        <div class="d-flex align-center justify-space-between">
+                            <MudText Typo="Typo.body2">
+                                <MudIcon Icon="@Icons.Material.Filled.Cancel" Color="Color.Error" Size="Size.Small" Class="mr-1" />
+                                離線設備
+                            </MudText>
+                            <MudChip T="string" Text="@_devices.Count(d => !d.IsOnline).ToString()" 
+                                     Color="Color.Error" 
+                                     Variant="Variant.Filled" 
+                                     Size="Size.Small" />
+                        </div>
+                    </MudPaper>
+
+                    <MudPaper Class="pa-3" Elevation="0" Style="background-color: rgba(33, 150, 243, 0.1);">
+                        <div class="d-flex align-center justify-space-between">
+                            <MudText Typo="Typo.body2">
+                                <MudIcon Icon="@Icons.Material.Filled.Devices" Color="Color.Info" Size="Size.Small" Class="mr-1" />
+                                設備總數
+                            </MudText>
+                            <MudChip T="string" Text="@_devices.Count.ToString()" 
+                                     Color="Color.Info" 
+                                     Variant="Variant.Filled" 
+                                     Size="Size.Small" />
+                        </div>
+                    </MudPaper>
+                </MudPaper>
+            </MudItem>
+
+            <!-- 右側：設備列表與管理 -->
+            <MudItem xs="12" md="8">
+                <MudPaper Class="pa-6" Elevation="2">
+                    <MudText Typo="Typo.h5" Color="Color.Primary" Class="mb-4">
+                        <MudIcon Icon="@Icons.Material.Filled.Devices" Class="mr-2" />
+                        設備列表
+                    </MudText>
+
+                    @if (_devices.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Warning">
+                            目前沒有已註冊的設備，請從左側新增設備
+                        </MudAlert>
+                    }
+                    else
+                    {
+                        <!-- 設備篩選 -->
+                        <div class="mb-4">
+                            <MudChip T="string" Text="全部" 
+                                     Variant="@(_selectedDeviceFilterStatus == null ? Variant.Filled : Variant.Outlined)"
+                                     Color="@(_selectedDeviceFilterStatus == null ? Color.Primary : Color.Default)"
+                                     OnClick="@(() => SetDeviceFilter(null, "全部"))"
+                                     Disabled="@_isBusy" />
+                            <MudChip T="string" Text="在線" 
+                                     Variant="@(_selectedDeviceFilterStatus == "Online" ? Variant.Filled : Variant.Outlined)"
+                                     Color="@(_selectedDeviceFilterStatus == "Online" ? Color.Success : Color.Default)"
+                                     OnClick="@(() => SetDeviceFilter("Online", "在線"))"
+                                     Disabled="@_isBusy" />
+                            <MudChip T="string" Text="離線" 
+                                     Variant="@(_selectedDeviceFilterStatus == "Offline" ? Variant.Filled : Variant.Outlined)"
+                                     Color="@(_selectedDeviceFilterStatus == "Offline" ? Color.Error : Color.Default)"
+                                     OnClick="@(() => SetDeviceFilter("Offline", "離線"))"
+                                     Disabled="@_isBusy" />
+                        </div>
+
+                        <!-- 設備卡片列表 -->
+                        <MudGrid>
+                            @foreach (var device in GetFilteredDevices())
+                            {
+                                <MudItem xs="12" md="6">
+                                    <MudCard Class="h-100">
+                                        <MudCardContent>
+                                            <div class="d-flex align-center justify-space-between mb-3">
+                                                <div class="d-flex align-center gap-2">
+                                                    <MudIcon Icon="@Icons.Material.Filled.Devices" 
+                                                             Color="@(device.IsOnline ? Color.Success : Color.Error)" 
+                                                             Size="Size.Medium" />
+                                                    <div>
+                                                        <MudText Typo="Typo.h6">@device.DeviceName</MudText>
+                                                        <MudText Typo="Typo.caption">
+                                                            @if (device.IsOnline)
+                                                            {
+                                                                <span style="color: green;">● 在線</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span style="color: red;">● 離線</span>
+                                                            }
+                                                        </MudText>
+                                                    </div>
+                                                </div>
+                                                <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" />
+                                            </div>
+
+                                            <MudDivider Class="my-2" />
+
+                                            <MudText Typo="Typo.caption" Class="mb-2">
+                                                <strong>IP 地址:</strong> @(string.IsNullOrEmpty(device.IpAddress) ? "未設定" : device.IpAddress)
+                                            </MudText>
+                                            <MudText Typo="Typo.caption" Class="mb-2">
+                                                <strong>最後心跳:</strong> @device.LastSeen.ToString("yyyy-MM-dd HH:mm:ss")
+                                            </MudText>
+                                            <MudText Typo="Typo.caption" Class="mb-3">
+                                                <strong>正在播放:</strong> @(string.IsNullOrEmpty(device.CurrentPlayingId) ? "無" : device.CurrentPlayingId)
+                                            </MudText>
+
+                                            <MudDivider Class="my-2" />
+
+                                            <div class="d-flex gap-2 mt-3">
+                                                <MudButton Variant="Variant.Outlined" Size="Size.Small" FullWidth="true" OnClick="@(() => PushDeviceConfig(device.DeviceId))" Disabled="@_isBusy">
+                                                    <MudIcon Icon="@Icons.Material.Filled.Send" Size="Size.Small" Class="mr-1" />
+                                                    推送配置
+                                                </MudButton>
+                                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" FullWidth="true"
+                                                           OnClick="@(() => RemoveDevice(device.DeviceId))"
+                                                           Disabled="@_isBusy">
+                                                    <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Class="mr-1" />
+                                                    移除
+                                                </MudButton>
+                                            </div>
+                                        </MudCardContent>
+                                    </MudCard>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    }
+
+                    <!-- 設備監控面板 -->
+                    <MudDivider Class="my-6" />
+
+                    <MudText Typo="Typo.h6" Class="mb-3">
+                        <MudIcon Icon="@Icons.Material.Filled.Timeline" Size="Size.Small" Class="mr-2" />
+                        設備詳細列表
+                    </MudText>
+
+                    <MudTable Items="@GetFilteredDevices()" Hover="true" Striped="true">
+                        <HeaderContent>
+                            <MudTh>設備名稱</MudTh>
+                            <MudTh>狀態</MudTh>
+                            <MudTh>IP 地址</MudTh>
+                            <MudTh>最後連線</MudTh>
+                            <MudTh>操作</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="設備名稱">
+                                <div class="d-flex align-center gap-2">
+                                    <MudIcon Icon="@Icons.Material.Filled.Devices" 
+                                             Color="@(context.IsOnline ? Color.Success : Color.Error)" />
+                                    @context.DeviceName
+                                </div>
+                            </MudTd>
+                            <MudTd DataLabel="狀態">
+                                @if (context.IsOnline)
+                                {
+                                    <MudChip T="string" Icon="@Icons.Material.Filled.CheckCircle" Text="在線" Color="Color.Success" Variant="Variant.Filled" Size="Size.Small" />
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Icon="@Icons.Material.Filled.Cancel" Text="離線" Color="Color.Error" Variant="Variant.Filled" Size="Size.Small" />
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="IP 地址">@context.IpAddress</MudTd>
+                            <MudTd DataLabel="最後連線">@context.LastSeen:yyyy-MM-dd HH:mm:ss</MudTd>
+                            <MudTd DataLabel="操作">
+                                <MudIconButton Icon="@Icons.Material.Filled.Refresh" 
+                                               Size="Size.Small" 
+                                               OnClick="@(() => RefreshDevice(context.DeviceId))"
+                                               Disabled="@_isBusy"
+                                               Title="刷新狀態" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                               Size="Size.Small" 
+                                               Color="Color.Error" 
+                                               OnClick="@(() => RemoveDevice(context.DeviceId))"
+                                               Disabled="@_isBusy"
+                                               Title="移除設備" />
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    [CascadingParameter]
+    public string SelectedCenter { get; set; } = "";
+
+    private List<DeviceStatus> _devices = new();
+    private string _deviceName = "";
+    private string _deviceIp = "";
+    private string? _selectedDeviceFilterStatus = null;
+    private bool _isBusy;
+    private string _busyMessage = "";
+
+    protected override void OnInitialized()
+    {
+        InitializeSampleDevices();
+    }
+
+    private void InitializeSampleDevices()
+    {
+        _devices.Add(new DeviceStatus
+        {
+            DeviceId = Guid.NewGuid().ToString(),
+            DeviceName = "看板-01",
+            IpAddress = "192.168.1.10",
+            IsOnline = true,
+            LastSeen = DateTime.Now.AddMinutes(-2),
+            CurrentPlayingId = "page-1"
+        });
+
+        _devices.Add(new DeviceStatus
+        {
+            DeviceId = Guid.NewGuid().ToString(),
+            DeviceName = "看板-02",
+            IpAddress = "192.168.1.11",
+            IsOnline = true,
+            LastSeen = DateTime.Now.AddMinutes(-5),
+            CurrentPlayingId = "page-1"
+        });
+
+        _devices.Add(new DeviceStatus
+        {
+            DeviceId = Guid.NewGuid().ToString(),
+            DeviceName = "看板-03",
+            IpAddress = "192.168.1.12",
+            IsOnline = false,
+            LastSeen = DateTime.Now.AddHours(-2),
+            CurrentPlayingId = ""
+        });
+
+        _devices.Add(new DeviceStatus
+        {
+            DeviceId = Guid.NewGuid().ToString(),
+            DeviceName = "戶外看板-A",
+            IpAddress = "192.168.1.20",
+            IsOnline = true,
+            LastSeen = DateTime.Now.AddMinutes(-1),
+            CurrentPlayingId = "page-2"
+        });
+    }
+
+    private async Task RegisterDevice()
+    {
+        if (string.IsNullOrWhiteSpace(_deviceName))
+        {
+            Snackbar.Add("請輸入設備名稱", Severity.Warning);
+            return;
+        }
+
+        await RunBusyActionAsync("註冊設備中...", async () =>
+        {
+            var newDevice = new DeviceStatus
+            {
+                DeviceId = Guid.NewGuid().ToString(),
+                DeviceName = _deviceName,
+                IpAddress = _deviceIp ?? "",
+                IsOnline = true,
+                LastSeen = DateTime.Now,
+                VisitorCenterId = SelectedCenter
+            };
+
+            await Task.Delay(300);
+            _devices.Add(newDevice);
+            _deviceName = "";
+            _deviceIp = "";
+        }, "設備已註冊");
+    }
+
+    private async Task RemoveDevice(string deviceId)
+    {
+        await RunBusyActionAsync("移除設備中...", () =>
+        {
+            var device = _devices.FirstOrDefault(d => d.DeviceId == deviceId);
+            if (device != null)
+            {
+                _devices.Remove(device);
+            }
+            return Task.CompletedTask;
+        }, "設備已移除");
+    }
+
+    private async Task PushDeviceConfig(string deviceId)
+    {
+        await RunBusyActionAsync("推送配置中...", async () =>
+        {
+            await Task.Delay(450);
+        }, "配置已推送");
+    }
+
+    private async Task RefreshDevice(string deviceId)
+    {
+        await RunBusyActionAsync("刷新設備狀態中...", () =>
+        {
+            var device = _devices.FirstOrDefault(d => d.DeviceId == deviceId);
+            if (device != null)
+            {
+                device.LastSeen = DateTime.Now;
+            }
+            return Task.CompletedTask;
+        }, "設備狀態已更新");
+    }
+
+    private async Task SetDeviceFilter(string? status, string label)
+    {
+        await RunBusyActionAsync($"切換到{label}篩選...", () =>
+        {
+            _selectedDeviceFilterStatus = status;
+            return Task.CompletedTask;
+        }, $"目前篩選：{label}");
+    }
+
+    private async Task RunBusyActionAsync(string message, Func<Task> action, string successMessage)
+    {
+        if (_isBusy)
+            return;
+
+        _isBusy = true;
+        _busyMessage = message;
+        StateHasChanged();
+
+        try
+        {
+            await action();
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"操作失敗：{ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isBusy = false;
+            _busyMessage = "";
+            StateHasChanged();
+        }
+    }
+
+    private List<DeviceStatus> GetFilteredDevices()
+    {
+        if (_selectedDeviceFilterStatus == null)
+            return _devices;
+        
+        if (_selectedDeviceFilterStatus == "Online")
+            return _devices.Where(d => d.IsOnline).ToList();
+        else
+            return _devices.Where(d => !d.IsOnline).ToList();
+    }
+}

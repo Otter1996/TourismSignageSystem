@@ -3,33 +3,77 @@
 @using MudBlazor
 @using MudBlazor.Services
 @inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager NavigationManager
 @rendermode InteractiveServer
 
 <MudThemeProvider />
+<MudPopoverProvider />
 <MudDialogProvider />
+<MudSnackbarProvider />
 
 <MudLayout>
     <MudAppBar Elevation="1" Color="Color.Primary">
-        <MudText Typo="Typo.h5">觀光局電子看板管理系統</MudText>
+        <MudText Typo="Typo.h5" Class="mr-auto">
+            <MudIcon Icon="@Icons.Material.Filled.Dashboard" Class="mr-2" />
+            觀光局電子看板管理系統
+        </MudText>
+        <MudChip T="string" Text="版本 1.0" Variant="Variant.Text" Color="Color.Info" Icon="@Icons.Material.Filled.Info" />
     </MudAppBar>
 
     <MudDrawer Open="true" ClipMode="DrawerClipMode.Always" Elevation="2">
+        @if (_isBusy)
+        {
+            <MudPaper Class="pa-3 ma-2" Elevation="1">
+                <MudProgressLinear Indeterminate="true" Color="Color.Info" Class="mb-2" />
+                <MudText Typo="Typo.caption">@_busyMessage</MudText>
+            </MudPaper>
+        }
+
         <MudNavMenu>
+            <!-- 主菜單導航 -->
+            @foreach (var item in _mainMenu)
+            {
+                @if (item.IsHeader)
+                {
+                    <MudNavGroup Title="@item.Title" Icon="@item.Icon" Expanded="true">
+                        @foreach (var subitem in item.SubItems)
+                        {
+                            <MudListItem T="string" Icon="@subitem.Icon" 
+                                         Text="@subitem.Title" 
+                                         OnClick="@(() => NavigateToPage(subitem.PageName))"
+                                         Disabled="@_isBusy"
+                                         Href="@subitem.PageName" />
+                        }
+                    </MudNavGroup>
+                }
+            }
+
+            <MudDivider Class="my-2" />
+
+            <!-- 遊客中心管理區 -->
             <MudNavGroup Title="遊客中心清單" Icon="@Icons.Material.Filled.LocationOn" Expanded="true">
                 @foreach (var center in _visitorCenters)
                 {
-                    <MudListItem T="string" OnClick="@(() => OnSelectCenter(center))">
+                    <MudListItem T="string" OnClick="@(() => OnSelectCenter(center))" Disabled="@_isBusy">
                         <div class="d-flex align-center justify-space-between w-100">
-                            <MudText>@center</MudText>
-                            @* 使用 span 包裹按鈕，並在此處攔截點擊事件，避免影響到 ListItem *@
+                            <MudText>
+                                @if (_selectedCenter == center)
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Color="Color.Success" Class="mr-1" />
+                                }
+                                @center
+                            </MudText>
                             <span @onclick:stopPropagation="true">
                                 <MudIconButton Icon="@Icons.Material.Filled.Edit" 
                                                Size="Size.Small" 
-                                               OnClick="@(() => PrepareEdit(center))" />
+                                               OnClick="@(() => PrepareEdit(center))"
+                                               Disabled="@_isBusy" />
                                 <MudIconButton Icon="@Icons.Material.Filled.Delete" 
                                                Size="Size.Small" 
                                                Color="Color.Error" 
-                                               OnClick="@(() => DeleteCenter(center))" />
+                                               OnClick="@(() => DeleteCenter(center))"
+                                               Disabled="@_isBusy" />
                             </span>
                         </div>
                     </MudListItem>
@@ -38,28 +82,53 @@
 
             <MudDivider Class="my-2" />
 
+            <!-- 新增/編輯遊客中心 -->
             <div class="pa-4">
                 <MudTextField @bind-Value="_inputName" 
                               Label="@(_isEditMode ? "修改名稱" : "新增遊客中心名稱")" 
                               Variant="Variant.Outlined" 
-                              Margin="Margin.Dense" />
+                              Margin="Margin.Dense"
+                              HelperText="@(_isEditMode ? "編輯現有遊客中心" : "輸入新遊客中心名稱")" />
                 
                 @if (_isEditMode)
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Info" FullWidth="true" Class="mt-2" OnClick="UpdateCenter">
+                    <MudButton Variant="Variant.Filled" Color="Color.Info" FullWidth="true" Class="mt-2" OnClick="UpdateCenter" Disabled="@_isBusy">
+                        <MudIcon Icon="@Icons.Material.Filled.Save" Class="mr-2" />
                         確認修改
                     </MudButton>
-                    <MudButton Variant="Variant.Text" Color="Color.Default" FullWidth="true" OnClick="CancelEdit">
+                    <MudButton Variant="Variant.Text" Color="Color.Default" FullWidth="true" OnClick="CancelEdit" Disabled="@_isBusy">
                         取消
                     </MudButton>
                 }
                 else
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Secondary" FullWidth="true" Class="mt-2" OnClick="AddNewCenter">
-                        確認新增
+                    <MudButton Variant="Variant.Filled" Color="Color.Secondary" FullWidth="true" Class="mt-2" OnClick="AddNewCenter" Disabled="@_isBusy">
+                        <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-2" />確認新增
                     </MudButton>
                 }
             </div>
+
+            <MudDivider Class="my-4" />
+
+            <!-- 設備狀態指示 -->
+            @if (_deviceStatuses.Count > 0)
+            {
+                <div class="pa-4">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">
+                        <MudIcon Icon="@Icons.Material.Filled.Devices" Size="Size.Small" />
+                        設備狀態
+                    </MudText>
+                    @foreach (var device in _deviceStatuses.Take(3))
+                    {
+                        <div class="d-flex align-center gap-2 mb-2">
+                            <MudIcon Icon="@(device.IsOnline ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)" 
+                                     Color="@(device.IsOnline ? Color.Success : Color.Error)" 
+                                     Size="Size.Small" />
+                            <MudText Typo="Typo.caption">@device.DeviceName</MudText>
+                        </div>
+                    }
+                </div>
+            }
         </MudNavMenu>
     </MudDrawer>
 
@@ -67,11 +136,16 @@
         <MudContainer MaxWidth="MaxWidth.Large" Class="my-16 pt-16">
             @if (string.IsNullOrEmpty(_selectedCenter))
             {
-                <MudAlert Severity="Severity.Info">請從左側選擇一個遊客中心來開始管理</MudAlert>
+                <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.Info">
+                    <MudText>歡迎使用電子看板管理系統！請從左側選擇或新增一個遊客中心來開始管理。</MudText>
+                </MudAlert>
             }
             else
             {
-                <MudText Typo="Typo.h4" GutterBottom="true">目前管理：@_selectedCenter</MudText>
+                <div class="d-flex align-center gap-2 mb-4">
+                    <MudIcon Icon="@Icons.Material.Filled.LocationOn" Color="Color.Primary" />
+                    <MudText Typo="Typo.h4">@_selectedCenter 管理面板</MudText>
+                </div>
                 <CascadingValue Value="_selectedCenter">
                 @Body
                 </CascadingValue>
@@ -82,41 +156,142 @@
 
 @code {
     private List<string> _visitorCenters = new() { "左營遊客中心", "旗津遊客中心", "新北旅遊處" };
+    private List<DeviceStatus> _deviceStatuses = new();
     private string _inputName = "";
     private string _selectedCenter = "";
     private string _oldNameForEdit = "";
     private bool _isEditMode = false;
+    private bool _isBusy;
+    private string _busyMessage = "";
 
-    private void AddNewCenter()
+    // 主菜單結構
+    private class MenuItem
     {
-        if (!string.IsNullOrWhiteSpace(_inputName))
+        public bool IsHeader { get; set; }
+        public string Title { get; set; } = "";
+        public string Icon { get; set; } = "";
+        public List<MenuItem> SubItems { get; set; } = new();
+        public string PageName { get; set; } = "";
+    }
+
+    private List<MenuItem> _mainMenu = new()
+    {
+        new MenuItem
+        {
+            IsHeader = true,
+            Title = "管理功能",
+            Icon = Icons.Material.Filled.Dashboard,
+            SubItems = new()
+            {
+                new MenuItem 
+                { 
+                    Title = "版型配置", 
+                    Icon = Icons.Material.Filled.Settings,
+                    PageName = "/" 
+                },
+                new MenuItem 
+                { 
+                    Title = "媒體庫", 
+                    Icon = Icons.Material.Filled.PhotoLibrary,
+                    PageName = "/media" 
+                },
+                new MenuItem 
+                { 
+                    Title = "設備管理", 
+                    Icon = Icons.Material.Filled.Devices,
+                    PageName = "/devices" 
+                }
+            }
+        }
+    };
+
+    protected override void OnInitialized()
+    {
+        InitializeSampleDevices();
+    }
+
+    private void InitializeSampleDevices()
+    {
+        _deviceStatuses.Add(new DeviceStatus 
+        { 
+            DeviceName = "看板-01", 
+            IsOnline = true, 
+            LastSeen = DateTime.Now 
+        });
+        _deviceStatuses.Add(new DeviceStatus 
+        { 
+            DeviceName = "看板-02", 
+            IsOnline = true, 
+            LastSeen = DateTime.Now.AddMinutes(-5) 
+        });
+        _deviceStatuses.Add(new DeviceStatus 
+        { 
+            DeviceName = "看板-03", 
+            IsOnline = false, 
+            LastSeen = DateTime.Now.AddHours(-2) 
+        });
+    }
+
+    private async Task NavigateToPage(string pageName)
+    {
+        await RunBusyActionAsync("頁面切換中...", () =>
+        {
+            NavigationManager.NavigateTo(pageName);
+            return Task.CompletedTask;
+        }, "頁面已切換");
+    }
+
+    private async Task AddNewCenter()
+    {
+        if (string.IsNullOrWhiteSpace(_inputName))
+        {
+            Snackbar.Add("請輸入遊客中心名稱", Severity.Warning);
+            return;
+        }
+
+        if (_visitorCenters.Contains(_inputName))
+        {
+            Snackbar.Add("名稱已存在", Severity.Warning);
+            return;
+        }
+
+        await RunBusyActionAsync("新增遊客中心中...", () =>
         {
             _visitorCenters.Add(_inputName);
             _inputName = "";
-        }
+            return Task.CompletedTask;
+        }, "已新增遊客中心");
     }
 
     private async Task DeleteCenter(string name)
     {
-        // 這裡確保使用 await 並呼叫 ShowMessageBox
         var result = await DialogService.ShowMessageBox(
             "警告", 
-            $"你確定要刪除「{name}」嗎？此動作無法復原。", 
+            $"你確定要刪除「{name}」及其所有配置嗎？此動作無法復原。", 
             yesText: "確認刪除", 
             cancelText: "取消"
         );
 
         if (result == true)
         {
-            _visitorCenters.Remove(name);
-            if (_selectedCenter == name) _selectedCenter = "";
-            StateHasChanged();
+            await RunBusyActionAsync("刪除遊客中心中...", () =>
+            {
+                _visitorCenters.Remove(name);
+                if (_selectedCenter == name) _selectedCenter = "";
+                return Task.CompletedTask;
+            }, "遊客中心已刪除");
         }
     }
 
     private async Task UpdateCenter()
     {
-        if (string.IsNullOrWhiteSpace(_inputName)) return;
+        if (string.IsNullOrWhiteSpace(_inputName) || _inputName == _oldNameForEdit) return;
+
+        if (_visitorCenters.Contains(_inputName))
+        {
+            await DialogService.ShowMessageBox("錯誤", "此名稱已存在，請使用其他名稱。");
+            return;
+        }
 
         var result = await DialogService.ShowMessageBox(
             "確認修改", 
@@ -127,32 +302,79 @@
 
         if (result == true)
         {
-            var index = _visitorCenters.IndexOf(_oldNameForEdit);
-            if (index != -1)
+            await RunBusyActionAsync("更新遊客中心中...", () =>
             {
-                _visitorCenters[index] = _inputName;
-                if (_selectedCenter == _oldNameForEdit) _selectedCenter = _inputName;
-                CancelEdit();
-            }
+                var index = _visitorCenters.IndexOf(_oldNameForEdit);
+                if (index != -1)
+                {
+                    _visitorCenters[index] = _inputName;
+                    if (_selectedCenter == _oldNameForEdit) _selectedCenter = _inputName;
+                    ResetEditState();
+                }
+                return Task.CompletedTask;
+            }, "遊客中心已更新");
         }
     }
 
-    private void PrepareEdit(string name)
+    private async Task PrepareEdit(string name)
     {
-        _isEditMode = true;
-        _oldNameForEdit = name;
-        _inputName = name;
+        await RunBusyActionAsync("載入編輯資料中...", () =>
+        {
+            _isEditMode = true;
+            _oldNameForEdit = name;
+            _inputName = name;
+            return Task.CompletedTask;
+        }, "已載入編輯資料");
     }
 
-    private void CancelEdit()
+    private async Task CancelEdit()
+    {
+        await RunBusyActionAsync("取消編輯中...", () =>
+        {
+            ResetEditState();
+            return Task.CompletedTask;
+        }, "已取消編輯");
+    }
+
+    private void ResetEditState()
     {
         _isEditMode = false;
         _inputName = "";
         _oldNameForEdit = "";
     }
 
-    private void OnSelectCenter(string name)
+    private async Task OnSelectCenter(string name)
     {
-        _selectedCenter = name;
+        await RunBusyActionAsync("切換遊客中心中...", () =>
+        {
+            _selectedCenter = name;
+            return Task.CompletedTask;
+        }, $"已切換至{name}");
+    }
+
+    private async Task RunBusyActionAsync(string message, Func<Task> action, string successMessage)
+    {
+        if (_isBusy)
+            return;
+
+        _isBusy = true;
+        _busyMessage = message;
+        StateHasChanged();
+
+        try
+        {
+            await action();
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"操作失敗：{ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isBusy = false;
+            _busyMessage = "";
+            StateHasChanged();
+        }
     }
 }

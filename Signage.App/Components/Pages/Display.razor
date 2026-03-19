@@ -1,0 +1,418 @@
+@page "/display"
+@using Signage.Common
+@using MudBlazor
+@rendermode InteractiveServer
+
+<div class="display-page" style="margin: 0; padding: 0; overflow: hidden; height: 100vh;">
+    <!-- 區域導航（僅用於演示，實際看板端應隱藏此選項） -->
+    <MudAppBar Style="position: absolute; top: 0; left: 0; right: 0; z-index: 1000;" Elevation="2">
+        <MudText Typo="Typo.h6" Class="mr-4">
+            <MudIcon Icon="@Icons.Material.Filled.Tv" Class="mr-2" />
+            電子看板播放端
+        </MudText>
+        <MudSelect T="string" Label="選擇版型" @bind-Value="_currentLayoutId" 
+                   Style="min-width: 250px; margin-right: 16px;"
+                   Variant="Variant.Outlined" Size="Size.Small" Dense="true">
+            @foreach (var layoutItem in _availableLayouts)
+            {
+                <MudSelectItem Value="@layoutItem.Id">@layoutItem.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSpacer />
+        <MudChip T="string" Icon="@Icons.Material.Filled.Info" Text="@GetStatusText()" 
+                 Color="Color.Info" Size="Size.Small" />
+    </MudAppBar>
+
+    <!-- 主要顯示區域 - 16:9 比例全屏 -->
+    <div class="display-container">
+        @if (_currentLayout != null)
+        {
+            @switch (_currentLayout.Layout)
+            {
+                case LayoutType.TripleVertical:
+                    <div class="layout-triple-display">
+                        <!-- 頂部：跑馬燈 (30%) -->
+                        <div class="zone-top">
+                            <div class="marquee-display">
+                                <div class="marquee-text">@_currentLayout.TopContent</div>
+                            </div>
+                        </div>
+
+                        <!-- 中部：影片 (40%) -->
+                        <div class="zone-middle">
+                            @if (!string.IsNullOrEmpty(_currentLayout.MiddleContentUrl))
+                            {
+                                <video autoplay muted loop playsinline 
+                                       style="width: 100%; height: 100%; object-fit: cover;">
+                                    <source src="@_currentLayout.MiddleContentUrl" type="video/mp4" />
+                                </video>
+                            }
+                            else
+                            {
+                                <div class="placeholder">播放內容區域</div>
+                            }
+                        </div>
+
+                        <!-- 底部：圖片 (30%) -->
+                        <div class="zone-bottom">
+                            @if (!string.IsNullOrEmpty(_currentLayout.BottomContentUrl))
+                            {
+                                <img src="@_currentLayout.BottomContentUrl" 
+                                     style="width: 100%; height: 100%; object-fit: cover;" 
+                                     alt="banner" />
+                            }
+                            else
+                            {
+                                <div class="placeholder">圖片區域</div>
+                            }
+                        </div>
+                    </div>
+                    break;
+
+                case LayoutType.LType:
+                    <div class="layout-ltype-display">
+                        <!-- 右側：影片 (65%) -->
+                        <div class="zone-video-right">
+                            @if (!string.IsNullOrEmpty(_currentLayout.MiddleContentUrl))
+                            {
+                                <video autoplay muted loop playsinline 
+                                       style="width: 100%; height: 100%; object-fit: cover;">
+                                    <source src="@_currentLayout.MiddleContentUrl" type="video/mp4" />
+                                </video>
+                            }
+                            else
+                            {
+                                <div class="placeholder">影片區域</div>
+                            }
+                        </div>
+
+                        <!-- 左側：資訊 (35%) -->
+                        <div class="zone-info-left">
+                            <div class="info-panel">
+                                <div class="info-section">
+                                    <h2>@_currentLayout.TopContent</h2>
+                                    <div class="info-content">@_currentLayout.LeftContent</div>
+                                </div>
+                                <div class="divider"></div>
+                                <div class="info-section">
+                                    <div class="info-content">@_currentLayout.RightContent</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    break;
+
+                case LayoutType.SingleFull:
+                    <div class="layout-single-display">
+                        <!-- 全屏背景影片 -->
+                        @if (!string.IsNullOrEmpty(_currentLayout.MiddleContentUrl))
+                        {
+                            <video autoplay muted loop playsinline 
+                                   style="width: 100%; height: 100%; object-fit: cover;">
+                                <source src="@_currentLayout.MiddleContentUrl" type="video/mp4" />
+                            </video>
+                        }
+                        else
+                        {
+                            <div class="placeholder">全屏背景</div>
+                        }
+
+                        <!-- 疊加的跑馬燈 -->
+                        <div class="overlay-marquee">
+                            <div class="marquee-text-overlay">@_currentLayout.TopContent</div>
+                        </div>
+                    </div>
+                    break;
+            }
+        }
+        else
+        {
+            <div class="placeholder-large">
+                <MudIcon Icon="@Icons.Material.Filled.NoPhotography" Size="Size.Large" Style="font-size: 120px;" />
+                <p>無可用的版型配置</p>
+            </div>
+        }
+    </div>
+
+    <!-- 底部狀態欄（調試用） -->
+    <div class="status-bar">
+        <span>版型：@_currentLayout?.Name | 更新時間：@DateTime.Now:HH:mm:ss</span>
+        <span class="connection-status">
+            @if (_isConnected)
+            {
+                <span style="color: green;">◉ 已連接</span>
+            }
+            else
+            {
+                <span style="color: red;">◉ 離線（本地模式）</span>
+            }
+        </span>
+    </div>
+</div>
+
+<style>
+    .display-page {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #000;
+        font-family: Arial, sans-serif;
+        overflow: hidden;
+    }
+
+    .display-container {
+        position: absolute;
+        top: 64px;
+        left: 0;
+        right: 0;
+        bottom: 40px;
+        width: 100%;
+        height: calc(100% - 104px);
+    }
+
+    /* 三段式版型顯示 */
+    .layout-triple-display {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        background-color: #000;
+    }
+
+    .zone-top {
+        flex: 0 0 30%;
+        background-color: #1a1a1a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    .zone-middle {
+        flex: 0 0 40%;
+        background-color: #000;
+        overflow: hidden;
+    }
+
+    .zone-bottom {
+        flex: 0 0 30%;
+        background-color: #000;
+        overflow: hidden;
+    }
+
+    /* L型顯示 */
+    .layout-ltype-display {
+        display: flex;
+        height: 100%;
+        background-color: #000;
+    }
+
+    .zone-video-right {
+        flex: 0 0 65%;
+        background-color: #000;
+        overflow: hidden;
+    }
+
+    .zone-info-left {
+        flex: 0 0 35%;
+        background-color: #2a2a2a;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 30px 20px;
+    }
+
+    .info-panel {
+        width: 100%;
+        color: #fff;
+    }
+
+    .info-section {
+        margin-bottom: 20px;
+    }
+
+    .info-section h2 {
+        margin: 0 0 15px 0;
+        font-size: 32px;
+        color: #4fc3f7;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    }
+
+    .info-content {
+        font-size: 18px;
+        line-height: 1.6;
+        color: #fff;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+
+    .divider {
+        height: 2px;
+        background-color: #4fc3f7;
+        margin: 20px 0;
+    }
+
+    /* 全屏版型 */
+    .layout-single-display {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .overlay-marquee {
+        position: absolute;
+        top: 50px;
+        left: 0;
+        right: 0;
+        background: linear-gradient(90deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.8) 100%);
+        padding: 20px 0;
+        overflow: hidden;
+        z-index: 10;
+    }
+
+    /* 跑馬燈效果 */
+    .marquee-display {
+        width: 100%;
+        overflow: hidden;
+    }
+
+    .marquee-text, .marquee-text-overlay {
+        animation: marquee 15s linear infinite;
+        white-space: nowrap;
+        color: #fff;
+        font-size: 32px;
+        font-weight: bold;
+        padding: 10px 20px;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    }
+
+    @@keyframes marquee {
+        0% {
+            transform: translateX(100%);
+        }
+        100% {
+            transform: translateX(-100%);
+        }
+    }
+
+    /* 佔位符 */
+    .placeholder {
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #333 0%, #1a1a1a 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #666;
+        font-size: 24px;
+        border: 2px dashed #555;
+    }
+
+    .placeholder-large {
+        width: 100%;
+        height: 100%;
+        background-color: #000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #666;
+    }
+
+    .placeholder-large p {
+        font-size: 24px;
+        margin-top: 20px;
+    }
+
+    /* 狀態欄 */
+    .status-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 40px;
+        background-color: #1a1a1a;
+        border-top: 1px solid #444;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        color: #aaa;
+        font-size: 12px;
+        z-index: 100;
+    }
+
+    .connection-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+</style>
+
+@code {
+    private List<SignagePage> _availableLayouts = new();
+    private string _currentLayoutId = "";
+    private SignagePage? _currentLayout;
+    private bool _isConnected = true;
+    private DateTime _lastUpdateTime = DateTime.Now;
+
+    protected override void OnInitialized()
+    {
+        InitializeSampleLayouts();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(_currentLayoutId) && _currentLayout?.Id != _currentLayoutId)
+        {
+            _currentLayout = _availableLayouts.FirstOrDefault(l => l.Id == _currentLayoutId);
+        }
+    }
+
+    private void InitializeSampleLayouts()
+    {
+        _availableLayouts.Add(new SignagePage
+        {
+            Id = "layout-1",
+            Name = "三段式：左營觀光",
+            Layout = LayoutType.TripleVertical,
+            TopContent = "★ 歡迎光臨左營遊客中心 ★ 蓮池潭 · 龍虎塔 · 孔廟 ★",
+            MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
+            BottomContentUrl = "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80"
+        });
+
+        _availableLayouts.Add(new SignagePage
+        {
+            Id = "layout-2",
+            Name = "L型資訊式",
+            Layout = LayoutType.LType,
+            TopContent = "景點介紹",
+            MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
+            LeftContent = "蓮池潭\n台灣最大的內湖\n風景優美，景緻秀麗",
+            RightContent = "龍虎塔\n建於1976年\n雙塔合一的獨特建築"
+        });
+
+        _availableLayouts.Add(new SignagePage
+        {
+            Id = "layout-3",
+            Name = "全螢幕模式",
+            Layout = LayoutType.SingleFull,
+            TopContent = "★ 旗津風景區 歡迎光臨 ★",
+            MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4"
+        });
+
+        if (_availableLayouts.Count > 0)
+        {
+            _currentLayoutId = _availableLayouts[0].Id;
+            _currentLayout = _availableLayouts[0];
+        }
+    }
+
+    private string GetStatusText()
+    {
+        return $"設備ID: {Guid.NewGuid().ToString().Substring(0, 8)}";
+    }
+}

@@ -1,14 +1,18 @@
 using Signage.App.Components;
-using MudBlazor.Services; //註冊MudBlazor 服務
+using Signage.App.Services;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
-//註冊MudBlazor 服務
+
+// 註冊 MudBlazor 服務
 builder.Services.AddMudServices();
-//-------------------------------------
+
+// 註冊 HttpClient 和 SignageApiClient
+builder.Services.AddHttpClient<SignageApiClient>();
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-
 
 var app = builder.Build();
 

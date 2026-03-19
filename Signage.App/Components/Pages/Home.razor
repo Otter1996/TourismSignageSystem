@@ -1,32 +1,464 @@
 ﻿@page "/"
 @using Signage.Common
 @using MudBlazor
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
 
-@* ... HTML 標籤部分 ... *@
-<MudText Typo="Typo.h5">【@SelectedCenter】版型設定</MudText>
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-6">
+    @if (string.IsNullOrEmpty(SelectedCenter))
+    {
+        <div class="d-flex flex-column align-center justify-center" style="min-height: 60vh;">
+            <MudIcon Icon="@Icons.Material.Filled.TouchApp" Size="Size.Large" Class="mb-4" />
+            <MudText Typo="Typo.h5">請從左側選單選擇一個遊客中心開始管理</MudText>
+        </div>
+    }
+    else
+    {
+        @if (_isBusy)
+        {
+            <MudPaper Class="pa-3 mb-4" Elevation="1">
+                <MudProgressLinear Indeterminate="true" Color="Color.Info" Class="mb-2" />
+                <MudText Typo="Typo.caption">@_busyMessage</MudText>
+            </MudPaper>
+        }
+
+        <MudGrid>
+            <!-- 左側：版型配置與編輯區 -->
+            <MudItem xs="12" md="4">
+                <MudPaper Class="pa-6" Elevation="4">
+                    <MudText Typo="Typo.h5" Color="Color.Primary" Class="mb-4">
+                        <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-2" />
+                        版型配置管理
+                    </MudText>
+
+                    <!-- 版型選擇 -->
+                    <MudSelect T="string" Label="選擇或新建版型" @bind-Value="_selectedPageId" Variant="Variant.Outlined" Class="mb-4">
+                        @foreach (var pageItem in _pages)
+                        {
+                            <MudSelectItem Value="@pageItem.Id">@pageItem.Name (@pageItem.Layout.ToString())</MudSelectItem>
+                        }
+                    </MudSelect>
+
+                    @if (!string.IsNullOrEmpty(_selectedPageId))
+                    {
+                        var config = GetCurrentPage();
+                        
+                        <!-- 版型編輯表單 -->
+                        <MudText Typo="Typo.subtitle2" Class="mb-3">📐 版型與內容</MudText>
+                        
+                        <MudSelect T="LayoutType" Label="看板版型" @bind-Value="config.Layout" Variant="Variant.Outlined" Class="mb-3">
+                            <MudSelectItem Value="LayoutType.TripleVertical">三段式 (30/40/30)</MudSelectItem>
+                            <MudSelectItem Value="LayoutType.LType">L型資訊模式</MudSelectItem>
+                            <MudSelectItem Value="LayoutType.SingleFull">全螢幕模式</MudSelectItem>
+                        </MudSelect>
+
+                        <MudTextField @bind-Value="config.TopContent" Label="頂部：跑馬燈文字" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
+                        <MudTextField @bind-Value="config.MiddleContentUrl" Label="中部：影片 URL" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
+                        <MudTextField @bind-Value="config.BottomContentUrl" Label="底部：圖片 URL" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-3" />
+
+                        @if (config.Layout == LayoutType.LType)
+                        {
+                            <MudTextField @bind-Value="config.LeftContent" Label="左側內容" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
+                            <MudTextField @bind-Value="config.RightContent" Label="右側內容" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-3" />
+                        }
+
+                        <!-- 版型操作按鈕 -->
+                        <div class="d-flex gap-2 mb-4">
+                            <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="SaveConfiguration" FullWidth="true" Disabled="@_isBusy">
+                                <MudIcon Icon="@Icons.Material.Filled.Save" Class="mr-2" />儲存設定
+                            </MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PushToDevices" FullWidth="true" Disabled="@_isBusy">
+                                <MudIcon Icon="@Icons.Material.Filled.Send" Class="mr-2" />推送至看板
+                            </MudButton>
+                        </div>
+
+                        <MudDivider Class="my-4" />
+
+                        <!-- 版型清單 -->
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">📋 版型清單</MudText>
+                        @foreach (var pageItem in _pages)
+                        {
+                            <MudListItem T="object" Icon="@Icons.Material.Filled.Pages" Text="@pageItem.Name">
+                                <div class="d-flex gap-1" @onclick:stopPropagation="true">
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" OnClick="@(() => SelectPage(pageItem.Id))" Disabled="@_isBusy" />
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeletePage(pageItem.Id))" Disabled="@_isBusy" />
+                                </div>
+                            </MudListItem>
+                        }
+
+                        <MudButton Variant="Variant.Outlined" Color="Color.Info" FullWidth="true" Class="mt-2" OnClick="CreateNewPage" Disabled="@_isBusy">
+                            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-2" />新建版型
+                        </MudButton>
+                    }
+                </MudPaper>
+            </MudItem>
+
+            <!-- 右側：模擬預覽區 -->
+            <MudItem xs="12" md="8">
+                <MudPaper Class="pa-6" Elevation="2">
+                    <MudText Typo="Typo.h6" Class="mb-4">
+                        <MudIcon Icon="@Icons.Material.Filled.Tv" Class="mr-2" />
+                        終端畫面模擬 (16:9)
+                    </MudText>
+
+                    @if (!string.IsNullOrEmpty(_selectedPageId))
+                    {
+                        var config = GetCurrentPage();
+                        
+                        <!-- TV 螢幕預覽效果 -->
+                        <div class="tv-preview-container">
+                            @switch (config.Layout)
+                            {
+                                case LayoutType.TripleVertical:
+                                    <div class="layout-triple">
+                                        <div class="zone-top zone-30">
+                                            <div class="marquee-wrapper">
+                                                <div class="marquee">@config.TopContent</div>
+                                            </div>
+                                        </div>
+                                        <div class="zone-mid zone-40">
+                                            <video src="@config.MiddleContentUrl" autoplay muted loop style="width:100%; height:100%; object-fit: cover;"></video>
+                                        </div>
+                                        <div class="zone-bottom zone-30">
+                                            <img src="@config.BottomContentUrl" style="width:100%; height:100%; object-fit: cover;" alt="banner" />
+                                        </div>
+                                    </div>
+                                    break;
+
+                                case LayoutType.LType:
+                                    <div class="layout-ltype">
+                                        <div class="zone-right">
+                                            <video src="@config.MiddleContentUrl" autoplay muted loop style="width:100%; height:100%; object-fit: cover;"></video>
+                                        </div>
+                                        <div class="zone-left">
+                                            <div class="info-box">
+                                                <div class="info-content">@config.LeftContent</div>
+                                                <div class="info-content">@config.RightContent</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    break;
+
+                                case LayoutType.SingleFull:
+                                    <div class="layout-single">
+                                        <div class="zone-full">
+                                            <video src="@config.MiddleContentUrl" autoplay muted loop style="width:100%; height:100%; object-fit: cover;"></video>
+                                            <div class="overlay-marquee">
+                                                <div class="marquee">@config.TopContent</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    break;
+                            }
+                        </div>
+
+                        <MudAlert Severity="Severity.Info" Class="mt-4">
+                            版型：<strong>@config.Layout.ToString()</strong> | 
+                            最後修改：<strong>@config.LastModified:yyyy-MM-dd HH:mm:ss</strong>
+                        </MudAlert>
+                    }
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+</MudContainer>
+
+<style>
+    /* TV預覽容器 - 16:9 比例 */
+    .tv-preview-container {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background-color: #000;
+        border: 4px solid #333;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    /* 三段式版型 */
+    .layout-triple {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .zone-30 {
+        flex: 0 0 30%;
+    }
+
+    .zone-40 {
+        flex: 0 0 40%;
+    }
+
+    .zone-top {
+        background-color: #1a1a1a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    .zone-mid, .zone-bottom {
+        background-color: #000;
+    }
+
+    /* 跑馬燈效果 */
+    .marquee-wrapper {
+        width: 100%;
+        overflow: hidden;
+    }
+
+    .marquee {
+        animation: marquee 10s linear infinite;
+        white-space: nowrap;
+        color: #fff;
+        font-size: 24px;
+        font-weight: bold;
+        padding: 10px;
+    }
+
+    @@keyframes marquee {
+        0% {
+            transform: translateX(100%);
+        }
+        100% {
+            transform: translateX(-100%);
+        }
+    }
+
+    /* L型版型 */
+    .layout-ltype {
+        display: flex;
+        height: 100%;
+    }
+
+    .zone-right {
+        flex: 0 0 65%;
+        background-color: #000;
+    }
+
+    .zone-left {
+        flex: 0 0 35%;
+        background-color: #1a1a1a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+
+    .info-box {
+        width: 100%;
+    }
+
+    .info-content {
+        color: #fff;
+        font-size: 14px;
+        margin-bottom: 10px;
+        padding: 10px;
+        background-color: rgba(255,255,255,0.1);
+        border-radius: 4px;
+    }
+
+    /* 全螢幕版型 */
+    .layout-single {
+        position: relative;
+        height: 100%;
+    }
+
+    .zone-full {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+
+    .overlay-marquee {
+        position: absolute;
+        top: 20px;
+        left: 0;
+        right: 0;
+        background: rgba(0,0,0,0.6);
+        overflow: hidden;
+    }
+
+    .overlay-marquee .marquee {
+        font-size: 20px;
+    }
+</style>
 
 @code {
-    // 💡 修正點：必須定義在 @code 區塊內，編譯器才認得它
-    [CascadingParameter] 
+    [CascadingParameter]
     public string SelectedCenter { get; set; } = "";
 
-    private Dictionary<string, SignagePage> _centerConfigs = new();
+    private List<SignagePage> _pages = new();
+    private string _selectedPageId = "";
+    private bool _isBusy;
+    private string _busyMessage = "";
 
-    private SignagePage CurrentConfig
+    protected override void OnInitialized()
     {
-        get
+        // 初始化示範數據
+        InitializePages();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // 當選擇的中心改變時，重新加載版型
+        if (!string.IsNullOrEmpty(SelectedCenter))
         {
-            if (string.IsNullOrEmpty(SelectedCenter)) return new SignagePage();
-            
-            if (!_centerConfigs.ContainsKey(SelectedCenter))
+            InitializePages();
+        }
+    }
+
+    private void InitializePages()
+    {
+        _pages.Clear();
+
+        // 為示範中心建立預設版型
+        if (SelectedCenter == "左營遊客中心")
+        {
+            _pages.Add(new SignagePage
             {
-                _centerConfigs[SelectedCenter] = new SignagePage {
-                    TopContent = $"★ 歡迎蒞臨 {SelectedCenter} ★",
-                    MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
-                    BottomContentUrl = "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=800&q=80"
-                };
+                Id = "page-1",
+                Name = "三段式版型",
+                Layout = LayoutType.TripleVertical,
+                TopContent = "★ 歡迎光臨左營遊客中心 ★",
+                MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
+                BottomContentUrl = "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80"
+            });
+
+            _pages.Add(new SignagePage
+            {
+                Id = "page-2",
+                Name = "L型資訊版型",
+                Layout = LayoutType.LType,
+                TopContent = "景點推薦",
+                MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
+                LeftContent = "蓮池潭\n龍虎塔\n孔子廟"
+            });
+        }
+        else if (SelectedCenter == "旗津遊客中心")
+        {
+            _pages.Add(new SignagePage
+            {
+                Id = "page-3",
+                Name = "全螢幕版型",
+                Layout = LayoutType.SingleFull,
+                TopContent = "★ 旗津風景區 ★",
+                MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4"
+            });
+        }
+        else
+        {
+            _pages.Add(new SignagePage
+            {
+                Id = "page-default",
+                Name = "預設版型",
+                Layout = LayoutType.TripleVertical,
+                TopContent = $"★ 歡迎光臨 {SelectedCenter} ★",
+                MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
+                BottomContentUrl = "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=800&q=80"
+            });
+        }
+
+        if (_pages.Count > 0 && string.IsNullOrEmpty(_selectedPageId))
+        {
+            _selectedPageId = _pages[0].Id;
+        }
+    }
+
+    private SignagePage GetCurrentPage()
+    {
+        return _pages.FirstOrDefault(p => p.Id == _selectedPageId) ?? new SignagePage();
+    }
+
+    private async Task SelectPage(string pageId)
+    {
+        await RunBusyActionAsync("切換版型中...", () =>
+        {
+            _selectedPageId = pageId;
+            return Task.CompletedTask;
+        }, "版型已切換");
+    }
+
+    private async Task CreateNewPage()
+    {
+        await RunBusyActionAsync("建立新版型中...", () =>
+        {
+            var newPage = new SignagePage
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = $"新版型 {_pages.Count + 1}",
+                VisitorCenterId = SelectedCenter,
+                Layout = LayoutType.TripleVertical
+            };
+            _pages.Add(newPage);
+            _selectedPageId = newPage.Id;
+            return Task.CompletedTask;
+        }, "已建立新版型");
+    }
+
+    private async Task DeletePage(string pageId)
+    {
+        await RunBusyActionAsync("刪除版型中...", () =>
+        {
+            var pageToDelete = _pages.FirstOrDefault(p => p.Id == pageId);
+            if (pageToDelete != null)
+            {
+                _pages.Remove(pageToDelete);
+                if (_selectedPageId == pageId)
+                {
+                    _selectedPageId = _pages.FirstOrDefault()?.Id ?? "";
+                }
             }
-            return _centerConfigs[SelectedCenter];
+            return Task.CompletedTask;
+        }, "版型已刪除");
+    }
+
+    private async Task SaveConfiguration()
+    {
+        await RunBusyActionAsync("儲存設定中...", async () =>
+        {
+            var page = GetCurrentPage();
+            page.LastModified = DateTime.Now;
+            await Task.Delay(350);
+            // TODO: 調用後端 API 保存配置
+        }, "設定已儲存");
+    }
+
+    private async Task PushToDevices()
+    {
+        await RunBusyActionAsync("推送中，請稍候...", async () =>
+        {
+            _ = GetCurrentPage();
+            await Task.Delay(500);
+            // TODO: 調用後端 API 推送至設備
+        }, "已送出推送命令");
+    }
+
+    private async Task RunBusyActionAsync(string message, Func<Task> action, string successMessage)
+    {
+        if (_isBusy)
+            return;
+
+        _isBusy = true;
+        _busyMessage = message;
+        StateHasChanged();
+
+        try
+        {
+            await action();
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"操作失敗：{ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isBusy = false;
+            _busyMessage = "";
+            StateHasChanged();
         }
     }
 }

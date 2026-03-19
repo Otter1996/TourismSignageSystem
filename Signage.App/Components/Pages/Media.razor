@@ -1,0 +1,339 @@
+@page "/media"
+@using Signage.Common
+@using MudBlazor
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-6">
+    @if (string.IsNullOrEmpty(SelectedCenter))
+    {
+        <MudAlert Severity="Severity.Info">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Class="mr-2" />
+            請先從左側選單選擇一個遊客中心
+        </MudAlert>
+    }
+    else
+    {
+        @if (_isBusy)
+        {
+            <MudPaper Class="pa-3 mb-4" Elevation="1">
+                <MudProgressLinear Indeterminate="true" Color="Color.Info" Class="mb-2" />
+                <MudText Typo="Typo.caption">@_busyMessage</MudText>
+            </MudPaper>
+        }
+
+        <MudGrid>
+            <!-- 左側：上傳與新增媒體 -->
+            <MudItem xs="12" md="4">
+                <MudPaper Class="pa-6" Elevation="4">
+                    <MudText Typo="Typo.h5" Color="Color.Primary" Class="mb-4">
+                        <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Class="mr-2" />
+                        新增媒體素材
+                    </MudText>
+
+                    <!-- 媒體類型選擇 -->
+                    <MudSelect T="string" Label="媒體類型" @bind-Value="_selectedMediaType" Variant="Variant.Outlined" Class="mb-4">
+                        <MudSelectItem Value="@("Image")">圖片 (JPG, PNG)</MudSelectItem>
+                        <MudSelectItem Value="@("Video")">影片 (MP4, WebM)</MudSelectItem>
+                        <MudSelectItem Value="@("Text")">文字內容</MudSelectItem>
+                    </MudSelect>
+
+                    <!-- 媒體 URL 輸入 -->
+                    <MudTextField @bind-Value="_mediaTitle" 
+                                  Label="媒體名稱" 
+                                  Variant="Variant.Filled" 
+                                  Margin="Margin.Dense" 
+                                  Class="mb-3" />
+                    
+                    <MudTextField @bind-Value="_mediaUrl" 
+                                  Label="媒體 URL" 
+                                  Variant="Variant.Filled" 
+                                  Margin="Margin.Dense" 
+                                  HelperText="輸入圖片或影片的完整 URL"
+                                  Class="mb-3" />
+
+                    @if (_selectedMediaType == "Video" || _selectedMediaType == "Image")
+                    {
+                        <MudNumericField @bind-Value="_mediaDuration" 
+                                        Label="播放時長（秒）" 
+                                        Variant="Variant.Filled" 
+                                        Margin="Margin.Dense"
+                                        Min="1" Max="300"
+                                        Class="mb-4" />
+                    }
+
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="AddMedia" Class="mb-2" Disabled="@_isBusy">
+                        <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-2" />
+                        新增素材
+                    </MudButton>
+
+                    <MudAlert Severity="Severity.Info" Class="mt-4">
+                        <strong>💡 提示:</strong> 確保 URL 可以正常訪問，系統支援公開的媒體 URL。
+                    </MudAlert>
+                </MudPaper>
+            </MudItem>
+
+            <!-- 右側：媒體庫展示 -->
+            <MudItem xs="12" md="8">
+                <MudPaper Class="pa-6" Elevation="2">
+                    <MudText Typo="Typo.h5" Color="Color.Primary" Class="mb-4">
+                        <MudIcon Icon="@Icons.Material.Filled.PhotoLibrary" Class="mr-2" />
+                        素材庫 (@_mediaLibrary.Count 項)
+                    </MudText>
+
+                    @if (_mediaLibrary.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Warning">
+                            目前沒有素材，請從左側新增媒體
+                        </MudAlert>
+                    }
+                    else
+                    {
+                        <!-- 媒體分類標籤 -->
+                        <div class="mb-4">
+                            <MudChip T="string" Text="全部" 
+                                     Variant="@(_filterMediaType == null ? Variant.Filled : Variant.Outlined)"
+                                     Color="@(_filterMediaType == null ? Color.Primary : Color.Default)"
+                                     OnClick="@(() => SetMediaFilter(null, "全部"))"
+                                     Disabled="@_isBusy" />
+                            <MudChip T="string" Text="圖片" 
+                                     Variant="@(_filterMediaType == "Image" ? Variant.Filled : Variant.Outlined)"
+                                     Color="@(_filterMediaType == "Image" ? Color.Primary : Color.Default)"
+                                     OnClick="@(() => SetMediaFilter("Image", "圖片"))"
+                                     Disabled="@_isBusy" />
+                            <MudChip T="string" Text="影片" 
+                                     Variant="@(_filterMediaType == "Video" ? Variant.Filled : Variant.Outlined)"
+                                     Color="@(_filterMediaType == "Video" ? Color.Primary : Color.Default)"
+                                     OnClick="@(() => SetMediaFilter("Video", "影片"))"
+                                     Disabled="@_isBusy" />
+                        </div>
+
+                        <!-- 媒體列表 -->
+                        <MudTable Items="@GetFilteredMedia()" Hover="true" Striped="true" Class="mb-4">
+                            <HeaderContent>
+                                <MudTh>名稱</MudTh>
+                                <MudTh>類型</MudTh>
+                                <MudTh>時長</MudTh>
+                                <MudTh>上傳時間</MudTh>
+                                <MudTh>操作</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="名稱">
+                                    <div class="d-flex align-center gap-2">
+                                        @if (context.MediaType == "Image")
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.Image" Color="Color.Info" />
+                                        }
+                                        else if (context.MediaType == "Video")
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.Movie" Color="Color.Warning" />
+                                        }
+                                        else
+                                        {
+                                            <MudIcon Icon="@Icons.Material.Filled.TextSnippet" Color="Color.Success" />
+                                        }
+                                        <MudText>@context.Title</MudText>
+                                    </div>
+                                </MudTd>
+                                <MudTd DataLabel="類型">@context.MediaType</MudTd>
+                                <MudTd DataLabel="時長">@context.Duration 秒</MudTd>
+                                <MudTd DataLabel="上傳時間">@context.UploadedAt:yyyy-MM-dd HH:mm</MudTd>
+                                <MudTd DataLabel="操作">
+                                    <MudIconButton Icon="@Icons.Material.Filled.FileCopy" 
+                                                   Size="Size.Small" 
+                                                   OnClick="@(() => CopyToClipboard(context.Url))"
+                                                   Disabled="@_isBusy"
+                                                   Title="複製 URL" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" 
+                                                   Size="Size.Small" 
+                                                   Color="Color.Error" 
+                                                   OnClick="@(() => DeleteMedia(context.Id))"
+                                                   Disabled="@_isBusy"
+                                                   Title="刪除" />
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+                        <!-- 預覽上方已選媒體 -->
+                        @if (!string.IsNullOrEmpty(_selectedMediaIdForPreview))
+                        {
+                            var selectedMedia = _mediaLibrary.FirstOrDefault(m => m.Id == _selectedMediaIdForPreview);
+                            @if (selectedMedia != null)
+                            {
+                                <MudDivider Class="my-4" />
+                                <MudText Typo="Typo.h6" Class="mb-3">媒體預覽</MudText>
+                                <MudPaper Class="pa-4" Elevation="1">
+                                    @if (selectedMedia.MediaType == "Image")
+                                    {
+                                        <img src="@selectedMedia.Url" style="max-width: 100%; height: auto; border-radius: 4px;" alt="@selectedMedia.Title" />
+                                    }
+                                    else if (selectedMedia.MediaType == "Video")
+                                    {
+                                        <video src="@selectedMedia.Url" 
+                                               controls 
+                                               autoplay 
+                                               style="width: 100%; border-radius: 4px;"></video>
+                                    }
+                                    else
+                                    {
+                                        <MudText>@selectedMedia.Title</MudText>
+                                    }
+                                </MudPaper>
+                            }
+                        }
+                    }
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    [CascadingParameter]
+    public string SelectedCenter { get; set; } = "";
+
+    private List<MediaContent> _mediaLibrary = new();
+    private string _selectedMediaType = "Image";
+    private string? _filterMediaType = null;
+    private string _mediaTitle = "";
+    private string _mediaUrl = "";
+    private int _mediaDuration = 10;
+    private string _selectedMediaIdForPreview = "";
+    private bool _isBusy;
+    private string _busyMessage = "";
+
+    protected override void OnInitialized()
+    {
+        InitializeSampleMedia();
+    }
+
+    private void InitializeSampleMedia()
+    {
+        _mediaLibrary.Add(new MediaContent
+        {
+            Id = Guid.NewGuid().ToString(),
+            Title = "示範影片1",
+            Url = "https://www.w3schools.com/html/mov_bbb.mp4",
+            MediaType = "Video",
+            Duration = 30,
+            UploadedAt = DateTime.Now.AddDays(-1)
+        });
+
+        _mediaLibrary.Add(new MediaContent
+        {
+            Id = Guid.NewGuid().ToString(),
+            Title = "旗津景色",
+            Url = "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80",
+            MediaType = "Image",
+            Duration = 10,
+            UploadedAt = DateTime.Now.AddDays(-2)
+        });
+
+        _mediaLibrary.Add(new MediaContent
+        {
+            Id = Guid.NewGuid().ToString(),
+            Title = "風景照",
+            Url = "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=800&q=80",
+            MediaType = "Image",
+            Duration = 15,
+            UploadedAt = DateTime.Now.AddDays(-3)
+        });
+    }
+
+    private async Task AddMedia()
+    {
+        if (string.IsNullOrWhiteSpace(_mediaTitle) || string.IsNullOrWhiteSpace(_mediaUrl))
+        {
+            Snackbar.Add("請輸入媒體名稱與 URL", Severity.Warning);
+            return;
+        }
+
+        await RunBusyActionAsync("新增素材中...", async () =>
+        {
+            var media = new MediaContent
+            {
+                Id = Guid.NewGuid().ToString(),
+                Title = _mediaTitle,
+                Url = _mediaUrl,
+                MediaType = _selectedMediaType,
+                Duration = _mediaDuration,
+                UploadedAt = DateTime.Now
+            };
+
+            await Task.Delay(250);
+            _mediaLibrary.Add(media);
+            _selectedMediaIdForPreview = media.Id;
+            _mediaTitle = "";
+            _mediaUrl = "";
+            _mediaDuration = 10;
+        }, "素材已新增");
+    }
+
+    private async Task DeleteMedia(string mediaId)
+    {
+        await RunBusyActionAsync("刪除素材中...", () =>
+        {
+            var media = _mediaLibrary.FirstOrDefault(m => m.Id == mediaId);
+            if (media != null)
+            {
+                _mediaLibrary.Remove(media);
+                if (_selectedMediaIdForPreview == mediaId)
+                    _selectedMediaIdForPreview = "";
+            }
+            return Task.CompletedTask;
+        }, "素材已刪除");
+    }
+
+    private List<MediaContent> GetFilteredMedia()
+    {
+        if (_filterMediaType == null)
+            return _mediaLibrary;
+        
+        return _mediaLibrary.Where(m => m.MediaType == _filterMediaType).ToList();
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await RunBusyActionAsync("複製網址中...", async () =>
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            await Task.Delay(120);
+        }, "已複製 URL");
+    }
+
+    private async Task SetMediaFilter(string? mediaType, string label)
+    {
+        await RunBusyActionAsync($"切換到{label}分類...", () =>
+        {
+            _filterMediaType = mediaType;
+            return Task.CompletedTask;
+        }, $"目前顯示：{label}");
+    }
+
+    private async Task RunBusyActionAsync(string message, Func<Task> action, string successMessage)
+    {
+        if (_isBusy)
+            return;
+
+        _isBusy = true;
+        _busyMessage = message;
+        StateHasChanged();
+
+        try
+        {
+            await action();
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"操作失敗：{ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isBusy = false;
+            _busyMessage = "";
+            StateHasChanged();
+        }
+    }
+}
