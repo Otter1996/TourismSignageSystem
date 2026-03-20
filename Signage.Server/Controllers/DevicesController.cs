@@ -1,6 +1,7 @@
 using Signage.Common;
 using Signage.Server.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Signage.Server.Controllers;
 
@@ -9,13 +10,16 @@ namespace Signage.Server.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class DevicesController : ControllerBase
 {
     private readonly SignageDataService _dataService;
+    private readonly SecurityService _securityService;
 
-    public DevicesController(SignageDataService dataService)
+    public DevicesController(SignageDataService dataService, SecurityService securityService)
     {
         _dataService = dataService;
+        _securityService = securityService;
     }
 
     /// <summary>
@@ -41,6 +45,7 @@ public class DevicesController : ControllerBase
     /// 註冊新設備
     /// </summary>
     [HttpPost("register")]
+    [Authorize(Roles = "Admin,Operator")]
     public ActionResult<DeviceStatus> RegisterDevice([FromBody] RegisterDeviceRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.CenterId))
@@ -55,6 +60,8 @@ public class DevicesController : ControllerBase
             request.IpAddress ?? ""
         );
 
+        _securityService.AddAudit(User.Identity?.Name ?? "unknown", "Device.Register", device.DeviceId, true, $"註冊設備 {device.DeviceName}", HttpContext.Connection.RemoteIpAddress?.ToString() ?? "", Request.Headers.UserAgent.ToString());
+
         return CreatedAtAction("GetDevicesByCenter", new { centerId = request.CenterId }, device);
     }
 
@@ -62,11 +69,14 @@ public class DevicesController : ControllerBase
     /// 設備心跳（更新設備在線狀態）
     /// </summary>
     [HttpPost("{deviceId}/heartbeat")]
+    [Authorize(Roles = "Admin,Operator")]
     public ActionResult Heartbeat(string deviceId)
     {
         var success = _dataService.UpdateDeviceHeartbeat(deviceId);
         if (!success)
             return NotFound(new { message = "設備不存在" });
+
+        _securityService.AddAudit(User.Identity?.Name ?? "unknown", "Device.Heartbeat", deviceId, true, "設備心跳更新", HttpContext.Connection.RemoteIpAddress?.ToString() ?? "", Request.Headers.UserAgent.ToString());
         return Ok(new { message = "心跳已更新", deviceId = deviceId });
     }
 }

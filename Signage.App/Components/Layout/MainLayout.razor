@@ -5,6 +5,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject NavigationManager NavigationManager
+@inject AuthSessionService AuthSession
 @rendermode InteractiveServer
 
 <MudThemeProvider />
@@ -18,6 +19,11 @@
             <MudIcon Icon="@Icons.Material.Filled.Dashboard" Class="mr-2" />
             觀光局電子看板管理系統
         </MudText>
+        @if (AuthSession.IsAuthenticated)
+        {
+            <MudChip T="string" Text="@($"{AuthSession.DisplayName} ({AuthSession.Role})")" Variant="Variant.Outlined" Color="Color.Warning" Class="mr-2" />
+            <MudButton Variant="Variant.Text" Color="Color.Inherit" OnClick="Logout">登出</MudButton>
+        }
         <MudChip T="string" Text="版本 1.0" Variant="Variant.Text" Color="Color.Info" Icon="@Icons.Material.Filled.Info" />
     </MudAppBar>
 
@@ -200,6 +206,18 @@
                     Title = "設備管理", 
                     Icon = Icons.Material.Filled.Devices,
                     PageName = "/devices" 
+                },
+                new MenuItem
+                {
+                    Title = "帳號管理",
+                    Icon = Icons.Material.Filled.AdminPanelSettings,
+                    PageName = "/users"
+                },
+                new MenuItem
+                {
+                    Title = "操作稽核",
+                    Icon = Icons.Material.Filled.FactCheck,
+                    PageName = "/audit-logs"
                 }
             }
         }
@@ -207,7 +225,21 @@
 
     protected override void OnInitialized()
     {
+        var currentPath = new Uri(NavigationManager.Uri).AbsolutePath;
+
+        if (!AuthSession.IsAuthenticated && !string.Equals(currentPath, "/login", StringComparison.OrdinalIgnoreCase))
+        {
+            NavigationManager.NavigateTo("/login");
+            return;
+        }
+
         InitializeSampleDevices();
+    }
+
+    private void Logout()
+    {
+        AuthSession.Logout();
+        NavigationManager.NavigateTo("/login", forceLoad: true);
     }
 
     private void InitializeSampleDevices()

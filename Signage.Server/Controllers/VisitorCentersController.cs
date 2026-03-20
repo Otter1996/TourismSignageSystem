@@ -1,6 +1,7 @@
 using Signage.Common;
 using Signage.Server.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Signage.Server.Controllers;
 
@@ -9,13 +10,16 @@ namespace Signage.Server.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class VisitorCentersController : ControllerBase
 {
     private readonly SignageDataService _dataService;
+    private readonly SecurityService _securityService;
 
-    public VisitorCentersController(SignageDataService dataService)
+    public VisitorCentersController(SignageDataService dataService, SecurityService securityService)
     {
         _dataService = dataService;
+        _securityService = securityService;
     }
 
     /// <summary>
@@ -43,12 +47,14 @@ public class VisitorCentersController : ControllerBase
     /// 建立新遊客中心
     /// </summary>
     [HttpPost]
+    [Authorize(Roles = "Admin,Operator")]
     public ActionResult<VisitorCenter> Create([FromBody] CreateVisitorCenterRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
             return BadRequest(new { message = "中心名稱不能為空" });
 
         var center = _dataService.CreateVisitorCenter(request.Name, request.Location ?? "");
+        _securityService.AddAudit(User.Identity?.Name ?? "unknown", "VisitorCenter.Create", center.Id, true, $"建立中心 {center.Name}", HttpContext.Connection.RemoteIpAddress?.ToString() ?? "", Request.Headers.UserAgent.ToString());
         return CreatedAtAction("GetById", new { centerId = center.Id }, center);
     }
 
@@ -56,11 +62,14 @@ public class VisitorCentersController : ControllerBase
     /// 更新遊客中心
     /// </summary>
     [HttpPut("{centerId}")]
+    [Authorize(Roles = "Admin,Operator")]
     public ActionResult UpdateVisitorCenter(string centerId, [FromBody] UpdateVisitorCenterRequest request)
     {
         var success = _dataService.UpdateVisitorCenter(centerId, request.Name, request.Location, request.Description ?? "");
         if (!success)
             return NotFound(new { message = "遊客中心不存在" });
+
+        _securityService.AddAudit(User.Identity?.Name ?? "unknown", "VisitorCenter.Update", centerId, true, "更新遊客中心", HttpContext.Connection.RemoteIpAddress?.ToString() ?? "", Request.Headers.UserAgent.ToString());
         return Ok(new { message = "更新成功" });
     }
 
@@ -68,11 +77,14 @@ public class VisitorCentersController : ControllerBase
     /// 刪除遊客中心
     /// </summary>
     [HttpDelete("{centerId}")]
+    [Authorize(Roles = "Admin")]
     public ActionResult DeleteVisitorCenter(string centerId)
     {
         var success = _dataService.DeleteVisitorCenter(centerId);
         if (!success)
             return NotFound(new { message = "遊客中心不存在" });
+
+        _securityService.AddAudit(User.Identity?.Name ?? "unknown", "VisitorCenter.Delete", centerId, true, "刪除遊客中心", HttpContext.Connection.RemoteIpAddress?.ToString() ?? "", Request.Headers.UserAgent.ToString());
         return Ok(new { message = "刪除成功" });
     }
 }

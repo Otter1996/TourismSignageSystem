@@ -1,0 +1,95 @@
+@page "/login"
+@inject SignageApiClient ApiClient
+@inject AuthSessionService AuthSession
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<MudThemeProvider />
+<MudSnackbarProvider />
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+    <MudPaper Class="pa-8" Elevation="6">
+        <MudText Typo="Typo.h5" Class="mb-4">系統登入</MudText>
+
+        <MudTextField @bind-Value="_username" Label="帳號" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_password" Label="密碼" InputType="InputType.Password" Variant="Variant.Outlined" Class="mb-3" />
+
+        @if (!string.IsNullOrWhiteSpace(_captchaImageBase64))
+        {
+            <div class="mb-3">
+                <img src="@($"data:image/svg+xml;base64,{_captchaImageBase64}")" alt="captcha" style="height:60px; border: 1px solid #ccc;" />
+                <MudButton Variant="Variant.Text" Color="Color.Info" OnClick="LoadCaptchaAsync">重新整理驗證碼</MudButton>
+            </div>
+        }
+
+        <MudTextField @bind-Value="_captchaCode" Label="圖形驗證碼" Variant="Variant.Outlined" Class="mb-4" />
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="LoginAsync" Disabled="@_isBusy">登入</MudButton>
+
+        @if (AuthSession.RequiresPasswordChange)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-4">密碼已超過 180 天，請先更新密碼。</MudAlert>
+        }
+
+        <MudDivider Class="my-4" />
+
+        <MudText Typo="Typo.caption">
+            預設管理員帳號：admin / Admin@123
+        </MudText>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string _username = "admin";
+    private string _password = "Admin@123";
+    private string _captchaCode = "";
+    private string _captchaId = "";
+    private string _captchaImageBase64 = "";
+    private bool _isBusy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCaptchaAsync();
+    }
+
+    private async Task LoadCaptchaAsync()
+    {
+        var captcha = await ApiClient.GetCaptchaAsync();
+        if (captcha is null)
+        {
+            Snackbar.Add("無法取得圖形驗證", Severity.Error);
+            return;
+        }
+
+        _captchaId = captcha.CaptchaId;
+        _captchaImageBase64 = captcha.ImageBase64;
+        _captchaCode = "";
+    }
+
+    private async Task LoginAsync()
+    {
+        if (_isBusy)
+            return;
+
+        _isBusy = true;
+        try
+        {
+            var result = await ApiClient.LoginAsync(_username, _password, _captchaId, _captchaCode);
+            if (result is null || string.IsNullOrWhiteSpace(result.Token))
+            {
+                Snackbar.Add("登入失敗，請確認帳密與驗證碼", Severity.Error);
+                await LoadCaptchaAsync();
+                return;
+            }
+
+            AuthSession.SetSession(result.Token, result.Username, result.DisplayName, result.Role, result.RequiresPasswordChange);
+            Snackbar.Add("登入成功", Severity.Success);
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+}

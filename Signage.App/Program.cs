@@ -6,6 +6,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 註冊 MudBlazor 服務
 builder.Services.AddMudServices();
+builder.Services.AddScoped<AuthSessionService>();
 
 // 註冊 HttpClient 和 SignageApiClient
 builder.Services.AddHttpClient<SignageApiClient>();

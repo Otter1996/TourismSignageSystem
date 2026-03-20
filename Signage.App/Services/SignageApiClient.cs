@@ -1,5 +1,6 @@
 using Signage.Common;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 
 namespace Signage.App.Services;
 
@@ -11,11 +12,140 @@ public class SignageApiClient
 {
     private readonly HttpClient _httpClient;
     private string _apiBaseUrl = "";
+    private readonly AuthSessionService _authSessionService;
 
-    public SignageApiClient(HttpClient httpClient, IConfiguration configuration)
+    public SignageApiClient(HttpClient httpClient, IConfiguration configuration, AuthSessionService authSessionService)
     {
         _httpClient = httpClient;
         _apiBaseUrl = configuration["ApiSettings:BaseUrl"] ?? "https://localhost:5001/api";
+        _authSessionService = authSessionService;
+    }
+
+    private void AttachAuthHeader()
+    {
+        if (_authSessionService.IsAuthenticated)
+        {
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _authSessionService.Token);
+        }
+        else
+        {
+            _httpClient.DefaultRequestHeaders.Authorization = null;
+        }
+    }
+
+    // ============= 驗證與權限 API =============
+
+    public async Task<CaptchaResponse?> GetCaptchaAsync()
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<CaptchaResponse>($"{_apiBaseUrl}/auth/captcha");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<LoginResponse?> LoginAsync(string username, string password, string captchaId, string captchaCode)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/auth/login", new
+            {
+                username,
+                password,
+                captchaId,
+                captchaCode
+            });
+
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            return await response.Content.ReadFromJsonAsync<LoginResponse>();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<(bool success, string message)> ChangePasswordAsync(string currentPassword, string newPassword)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/auth/change-password", new
+            {
+                currentPassword,
+                newPassword
+            });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                return (false, err);
+            }
+
+            return (true, "密碼更新成功");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public async Task<List<UserAccount>> GetUsersAsync()
+    {
+        try
+        {
+            AttachAuthHeader();
+            return await _httpClient.GetFromJsonAsync<List<UserAccount>>($"{_apiBaseUrl}/users") ?? new();
+        }
+        catch
+        {
+            return new();
+        }
+    }
+
+    public async Task<(bool success, string message)> CreateUserAsync(string username, string displayName, string role, string password)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/users", new
+            {
+                username,
+                displayName,
+                role,
+                password
+            });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                return (false, err);
+            }
+
+            return (true, "帳號建立成功");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public async Task<List<AuditLogEntry>> GetAuditLogsAsync(int limit = 200)
+    {
+        try
+        {
+            AttachAuthHeader();
+            return await _httpClient.GetFromJsonAsync<List<AuditLogEntry>>($"{_apiBaseUrl}/auditlogs?limit={limit}") ?? new();
+        }
+        catch
+        {
+            return new();
+        }
     }
 
     // ============= 遊客中心 API =============
@@ -24,6 +154,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var response = await _httpClient.GetAsync($"{_apiBaseUrl}/visitorcenters");
             if (response.IsSuccessStatusCode)
             {
@@ -42,6 +173,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var response = await _httpClient.GetAsync($"{_apiBaseUrl}/visitorcenters/{centerId}");
             if (response.IsSuccessStatusCode)
             {
@@ -60,6 +192,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var request = new { name, location };
             var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/visitorcenters", request);
             if (response.IsSuccessStatusCode)
@@ -81,6 +214,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages/center/{centerId}");
             if (response.IsSuccessStatusCode)
             {
@@ -99,6 +233,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages/{pageId}");
             if (response.IsSuccessStatusCode)
             {
@@ -117,6 +252,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var request = new { centerId, name, layout };
             var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/signagepages", request);
             if (response.IsSuccessStatusCode)
@@ -136,6 +272,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var response = await _httpClient.PutAsJsonAsync($"{_apiBaseUrl}/signagepages/{pageId}", page);
             return response.IsSuccessStatusCode;
         }
@@ -150,6 +287,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var request = new { centerId };
             var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/signagepages/{pageId}/activate", request);
             return response.IsSuccessStatusCode;
@@ -167,6 +305,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var response = await _httpClient.GetAsync($"{_apiBaseUrl}/media/center/{centerId}");
             if (response.IsSuccessStatusCode)
             {
@@ -185,6 +324,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var request = new { centerId, title, url, mediaType, duration };
             var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/media", request);
             if (response.IsSuccessStatusCode)
@@ -206,6 +346,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var response = await _httpClient.GetAsync($"{_apiBaseUrl}/devices/center/{centerId}");
             if (response.IsSuccessStatusCode)
             {
@@ -224,6 +365,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var request = new { centerId, deviceName, ipAddress };
             var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/devices/register", request);
             if (response.IsSuccessStatusCode)
@@ -243,6 +385,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var response = await _httpClient.PostAsync($"{_apiBaseUrl}/devices/{deviceId}/heartbeat", null);
             return response.IsSuccessStatusCode;
         }
@@ -259,6 +402,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var request = new { deviceId, pageConfig };
             var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/commands/push", request);
             if (response.IsSuccessStatusCode)
@@ -280,6 +424,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var response = await _httpClient.GetAsync($"{_apiBaseUrl}/commands/pending/{deviceId}");
             if (response.IsSuccessStatusCode)
             {
@@ -298,6 +443,7 @@ public class SignageApiClient
     {
         try
         {
+            AttachAuthHeader();
             var request = new { status };
             var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/commands/{commandId}/status", request);
             return response.IsSuccessStatusCode;
@@ -308,4 +454,22 @@ public class SignageApiClient
             return false;
         }
     }
+}
+
+public class CaptchaResponse
+{
+    public string CaptchaId { get; set; } = "";
+    public string ImageBase64 { get; set; } = "";
+    public string Format { get; set; } = "image/svg+xml";
+}
+
+public class LoginResponse
+{
+    public string Message { get; set; } = "";
+    public string Token { get; set; } = "";
+    public string Username { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string Role { get; set; } = "";
+    public bool RequiresPasswordChange { get; set; }
+    public DateTime PasswordExpiresAtUtc { get; set; }
 }

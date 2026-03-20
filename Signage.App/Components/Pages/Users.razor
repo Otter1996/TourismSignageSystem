@@ -1,0 +1,108 @@
+@page "/users"
+@inject SignageApiClient ApiClient
+@inject AuthSessionService AuthSession
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-6">
+    @if (!AuthSession.IsAuthenticated)
+    {
+        <MudAlert Severity="Severity.Error">請先登入。</MudAlert>
+    }
+    else if (AuthSession.Role != UserRoles.Admin)
+    {
+        <MudAlert Severity="Severity.Warning">只有系統管理員可管理帳號。</MudAlert>
+    }
+    else
+    {
+        <MudPaper Class="pa-6 mb-4" Elevation="2">
+            <MudText Typo="Typo.h5" Class="mb-4">帳號建立與權限管理</MudText>
+            <MudGrid>
+                <MudItem xs="12" md="3">
+                    <MudTextField @bind-Value="_username" Label="帳號" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudTextField @bind-Value="_displayName" Label="顯示名稱" Variant="Variant.Outlined" />
+                </MudItem>
+                <MudItem xs="12" md="2">
+                    <MudSelect T="string" Label="角色" @bind-Value="_role" Variant="Variant.Outlined">
+                        <MudSelectItem Value="@UserRoles.Admin">Admin</MudSelectItem>
+                        <MudSelectItem Value="@UserRoles.Operator">Operator</MudSelectItem>
+                        <MudSelectItem Value="@UserRoles.Viewer">Viewer</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_password" Label="初始密碼" InputType="InputType.Password" Variant="Variant.Outlined" HelperText="至少 8 碼且含大小寫與特殊符號" />
+                </MudItem>
+            </MudGrid>
+            <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateUserAsync">建立帳號</MudButton>
+        </MudPaper>
+
+        <MudPaper Class="pa-6" Elevation="1">
+            <div class="d-flex align-center justify-space-between mb-3">
+                <MudText Typo="Typo.h6">帳號清單</MudText>
+                <MudButton Variant="Variant.Outlined" Color="Color.Info" OnClick="LoadUsersAsync">重新整理</MudButton>
+            </div>
+            <MudTable Items="_users" Hover="true" Striped="true">
+                <HeaderContent>
+                    <MudTh>帳號</MudTh>
+                    <MudTh>顯示名稱</MudTh>
+                    <MudTh>角色</MudTh>
+                    <MudTh>啟用</MudTh>
+                    <MudTh>密碼更新時間(UTC)</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="帳號">@context.Username</MudTd>
+                    <MudTd DataLabel="顯示名稱">@context.DisplayName</MudTd>
+                    <MudTd DataLabel="角色">@context.Role</MudTd>
+                    <MudTd DataLabel="啟用">@(context.IsActive ? "是" : "否")</MudTd>
+                    <MudTd DataLabel="密碼更新時間">@context.PasswordChangedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private List<UserAccount> _users = new();
+    private string _username = "";
+    private string _displayName = "";
+    private string _role = UserRoles.Viewer;
+    private string _password = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsersAsync();
+    }
+
+    private async Task LoadUsersAsync()
+    {
+        if (!AuthSession.IsAuthenticated || AuthSession.Role != UserRoles.Admin)
+            return;
+
+        _users = await ApiClient.GetUsersAsync();
+    }
+
+    private async Task CreateUserAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_password))
+        {
+            Snackbar.Add("請填入帳號與密碼", Severity.Warning);
+            return;
+        }
+
+        var result = await ApiClient.CreateUserAsync(_username, _displayName, _role, _password);
+        if (!result.success)
+        {
+            Snackbar.Add($"建立失敗: {result.message}", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("帳號建立成功", Severity.Success);
+        _username = "";
+        _displayName = "";
+        _password = "";
+        _role = UserRoles.Viewer;
+        await LoadUsersAsync();
+    }
+}

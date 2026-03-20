@@ -1,0 +1,74 @@
+@page "/audit-logs"
+@inject SignageApiClient ApiClient
+@inject AuthSessionService AuthSession
+@inject ISnackbar Snackbar
+@rendermode InteractiveServer
+
+<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-6">
+    @if (!AuthSession.IsAuthenticated)
+    {
+        <MudAlert Severity="Severity.Error">請先登入。</MudAlert>
+    }
+    else if (AuthSession.Role != UserRoles.Admin)
+    {
+        <MudAlert Severity="Severity.Warning">只有系統管理員可查看稽核紀錄。</MudAlert>
+    }
+    else
+    {
+        <MudPaper Class="pa-6" Elevation="2">
+            <div class="d-flex align-center justify-space-between mb-4">
+                <MudText Typo="Typo.h5">操作稽核紀錄</MudText>
+                <MudButton Variant="Variant.Outlined" Color="Color.Info" OnClick="LoadAsync">重新整理</MudButton>
+            </div>
+
+            <MudTable Items="_logs" Dense="true" Hover="true" Striped="true">
+                <HeaderContent>
+                    <MudTh>時間(UTC)</MudTh>
+                    <MudTh>帳號</MudTh>
+                    <MudTh>動作</MudTh>
+                    <MudTh>目標</MudTh>
+                    <MudTh>成功</MudTh>
+                    <MudTh>IP</MudTh>
+                    <MudTh>描述</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.TimestampUtc.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                    <MudTd>@context.Username</MudTd>
+                    <MudTd>@context.Action</MudTd>
+                    <MudTd>@context.Target</MudTd>
+                    <MudTd>
+                        @if (context.Success)
+                        {
+                            <MudChip T="string" Text="成功" Color="Color.Success" Size="Size.Small" />
+                        }
+                        else
+                        {
+                            <MudChip T="string" Text="失敗" Color="Color.Error" Size="Size.Small" />
+                        }
+                    </MudTd>
+                    <MudTd>@context.IpAddress</MudTd>
+                    <MudTd>@context.Detail</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private List<AuditLogEntry> _logs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (!AuthSession.IsAuthenticated || AuthSession.Role != UserRoles.Admin)
+            return;
+
+        _logs = await ApiClient.GetAuditLogsAsync();
+        if (_logs.Count == 0)
+            Snackbar.Add("目前沒有可顯示的稽核紀錄", Severity.Info);
+    }
+}
