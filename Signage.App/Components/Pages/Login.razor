@@ -1,4 +1,5 @@
 @page "/login"
+@layout Layout.LoginLayout
 @inject SignageApiClient ApiClient
 @inject AuthSessionService AuthSession
 @inject NavigationManager Navigation
@@ -83,9 +84,9 @@
                 return;
             }
 
-            AuthSession.SetSession(result.Token, result.Username, result.DisplayName, result.Role, result.RequiresPasswordChange);
+            await AuthSession.SetSessionAsync(result.Token, result.Username, result.DisplayName, result.Role, result.RequiresPasswordChange);
             Snackbar.Add("登入成功", Severity.Success);
-            Navigation.NavigateTo("/", forceLoad: true);
+            Navigation.NavigateTo("/");
         }
         finally
         {

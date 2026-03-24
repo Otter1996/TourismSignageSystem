@@ -1,370 +1,495 @@
-﻿@page "/"
+@page "/"
 @using Signage.Common
+@using Signage.App.Services
 @using MudBlazor
 @inject ISnackbar Snackbar
+@inject SignageApiClient ApiClient
 @rendermode InteractiveServer
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-6">
-    @if (string.IsNullOrEmpty(SelectedCenter))
+    @if (_isBusy)
     {
-        <div class="d-flex flex-column align-center justify-center" style="min-height: 60vh;">
-            <MudIcon Icon="@Icons.Material.Filled.TouchApp" Size="Size.Large" Class="mb-4" />
-            <MudText Typo="Typo.h5">請從左側選單選擇一個遊客中心開始管理</MudText>
-        </div>
+        <MudPaper Class="pa-3 mb-4" Elevation="1">
+            <MudProgressLinear Indeterminate="true" Color="Color.Info" Class="mb-2" />
+            <MudText Typo="Typo.caption">@_busyMessage</MudText>
+        </MudPaper>
     }
-    else
-    {
-        @if (_isBusy)
-        {
-            <MudPaper Class="pa-3 mb-4" Elevation="1">
-                <MudProgressLinear Indeterminate="true" Color="Color.Info" Class="mb-2" />
-                <MudText Typo="Typo.caption">@_busyMessage</MudText>
-            </MudPaper>
-        }
 
-        <MudGrid>
-            <!-- 左側：版型配置與編輯區 -->
-            <MudItem xs="12" md="4">
+    <MudGrid>
+            <MudItem xs="12" lg="5">
                 <MudPaper Class="pa-6" Elevation="4">
                     <MudText Typo="Typo.h5" Color="Color.Primary" Class="mb-4">
-                        <MudIcon Icon="@Icons.Material.Filled.Settings" Class="mr-2" />
-                        版型配置管理
+                        <MudIcon Icon="@Icons.Material.Filled.SpaceDashboard" Class="mr-2" />
+                        動態版型編輯器
                     </MudText>
 
-                    <!-- 版型選擇 -->
-                    <MudSelect T="string" Label="選擇或新建版型" @bind-Value="_selectedPageId" Variant="Variant.Outlined" Class="mb-4">
-                        @foreach (var pageItem in _pages)
-                        {
-                            <MudSelectItem Value="@pageItem.Id">@pageItem.Name (@pageItem.Layout.ToString())</MudSelectItem>
-                        }
-                    </MudSelect>
-
-                    @if (!string.IsNullOrEmpty(_selectedPageId))
+                    @if (_isLoadingCenterData)
                     {
-                        var config = GetCurrentPage();
-                        
-                        <!-- 版型編輯表單 -->
-                        <MudText Typo="Typo.subtitle2" Class="mb-3">📐 版型與內容</MudText>
-                        
-                        <MudSelect T="LayoutType" Label="看板版型" @bind-Value="config.Layout" Variant="Variant.Outlined" Class="mb-3">
-                            <MudSelectItem Value="LayoutType.TripleVertical">三段式 (30/40/30)</MudSelectItem>
-                            <MudSelectItem Value="LayoutType.LType">L型資訊模式</MudSelectItem>
-                            <MudSelectItem Value="LayoutType.SingleFull">全螢幕模式</MudSelectItem>
+                        <MudProgressCircular Indeterminate="true" Color="Color.Info" Class="mb-3" />
+                        <MudText Typo="Typo.caption">讀取版型庫與素材中...</MudText>
+                    }
+                    else
+                    {
+                        <MudSelect T="string"
+                                   Label="選擇版型"
+                                   Value="@_selectedPageId"
+                                   ValueChanged="SelectPage"
+                                   Variant="Variant.Outlined"
+                                   Class="mb-4">
+                            @foreach (var pageItem in _pages)
+                            {
+                                <MudSelectItem Value="@pageItem.Id">@pageItem.Name</MudSelectItem>
+                            }
                         </MudSelect>
 
-                        <MudTextField @bind-Value="config.TopContent" Label="頂部：跑馬燈文字" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
-                        <MudTextField @bind-Value="config.MiddleContentUrl" Label="中部：影片 URL" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
-                        <MudTextField @bind-Value="config.BottomContentUrl" Label="底部：圖片 URL" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-3" />
-
-                        @if (config.Layout == LayoutType.LType)
+                        @if (!string.IsNullOrWhiteSpace(_selectedPageId))
                         {
-                            <MudTextField @bind-Value="config.LeftContent" Label="左側內容" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
-                            <MudTextField @bind-Value="config.RightContent" Label="右側內容" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-3" />
-                        }
+                            var page = GetCurrentPage();
 
-                        <!-- 版型操作按鈕 -->
-                        <div class="d-flex gap-2 mb-4">
-                            <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="SaveConfiguration" FullWidth="true" Disabled="@_isBusy">
-                                <MudIcon Icon="@Icons.Material.Filled.Save" Class="mr-2" />儲存設定
-                            </MudButton>
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PushToDevices" FullWidth="true" Disabled="@_isBusy">
-                                <MudIcon Icon="@Icons.Material.Filled.Send" Class="mr-2" />推送至看板
-                            </MudButton>
-                        </div>
+                            <MudTextField @bind-Value="page.Name" Label="版型名稱" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-3" />
 
-                        <MudDivider Class="my-4" />
+                            <MudSelect T="ScreenOrientation" Label="螢幕方向" @bind-Value="page.ScreenOrientation" Variant="Variant.Outlined" Class="mb-4">
+                                <MudSelectItem Value="@ScreenOrientation.Landscape16x9">16:9 橫式</MudSelectItem>
+                                <MudSelectItem Value="@ScreenOrientation.Portrait9x16">9:16 直式</MudSelectItem>
+                            </MudSelect>
 
-                        <!-- 版型清單 -->
-                        <MudText Typo="Typo.subtitle2" Class="mb-2">📋 版型清單</MudText>
-                        @foreach (var pageItem in _pages)
-                        {
-                            <MudListItem T="object" Icon="@Icons.Material.Filled.Pages" Text="@pageItem.Name">
-                                <div class="d-flex gap-1" @onclick:stopPropagation="true">
-                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" OnClick="@(() => SelectPage(pageItem.Id))" Disabled="@_isBusy" />
-                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeletePage(pageItem.Id))" Disabled="@_isBusy" />
-                                </div>
-                            </MudListItem>
-                        }
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">公版快選</MudText>
+                            <div class="preset-grid mb-4">
+                                @foreach (var preset in _presets)
+                                {
+                                    <MudButton Variant="@(IsPresetActive(page, preset) ? Variant.Filled : Variant.Outlined)"
+                                               Color="@(IsPresetActive(page, preset) ? Color.Primary : Color.Default)"
+                                               OnClick="@(() => ApplyPreset(page, preset))"
+                                               Disabled="@_isBusy">
+                                        @preset.Label
+                                    </MudButton>
+                                }
+                            </div>
 
-                        <MudButton Variant="Variant.Outlined" Color="Color.Info" FullWidth="true" Class="mt-2" OnClick="CreateNewPage" Disabled="@_isBusy">
-                            <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-2" />新建版型
-                        </MudButton>
-                    }
-                </MudPaper>
-            </MudItem>
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">區塊數量</MudText>
+                            <div class="d-flex gap-2 mb-4 flex-wrap">
+                                <MudButton Variant="@(page.ZoneCount == 1 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => SetZoneCount(page, 1))">單一區塊</MudButton>
+                                <MudButton Variant="@(page.ZoneCount == 2 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => SetZoneCount(page, 2))">雙區塊</MudButton>
+                                <MudButton Variant="@(page.ZoneCount == 3 ? Variant.Filled : Variant.Outlined)" Color="Color.Info" OnClick="@(() => SetZoneCount(page, 3))">三區塊</MudButton>
+                            </div>
 
-            <!-- 右側：模擬預覽區 -->
-            <MudItem xs="12" md="8">
-                <MudPaper Class="pa-6" Elevation="2">
-                    <MudText Typo="Typo.h6" Class="mb-4">
-                        <MudIcon Icon="@Icons.Material.Filled.Tv" Class="mr-2" />
-                        終端畫面模擬 (16:9)
-                    </MudText>
-
-                    @if (!string.IsNullOrEmpty(_selectedPageId))
-                    {
-                        var config = GetCurrentPage();
-                        
-                        <!-- TV 螢幕預覽效果 -->
-                        <div class="tv-preview-container">
-                            @switch (config.Layout)
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">高度比例設定</MudText>
+                            @foreach (var region in GetEditableRegions(page))
                             {
-                                case LayoutType.TripleVertical:
-                                    <div class="layout-triple">
-                                        <div class="zone-top zone-30">
-                                            <div class="marquee-wrapper">
-                                                <div class="marquee">@config.TopContent</div>
-                                            </div>
-                                        </div>
-                                        <div class="zone-mid zone-40">
-                                            <video src="@config.MiddleContentUrl" autoplay muted loop style="width:100%; height:100%; object-fit: cover;"></video>
-                                        </div>
-                                        <div class="zone-bottom zone-30">
-                                            <img src="@config.BottomContentUrl" style="width:100%; height:100%; object-fit: cover;" alt="banner" />
-                                        </div>
-                                    </div>
-                                    break;
+                                <MudPaper Class="pa-3 mb-3 region-editor-card" Outlined="true">
+                                    <MudText Typo="Typo.subtitle2" Class="mb-2">@GetRegionDisplayName(region.SortOrder, page.ZoneCount)</MudText>
 
-                                case LayoutType.LType:
-                                    <div class="layout-ltype">
-                                        <div class="zone-right">
-                                            <video src="@config.MiddleContentUrl" autoplay muted loop style="width:100%; height:100%; object-fit: cover;"></video>
-                                        </div>
-                                        <div class="zone-left">
-                                            <div class="info-box">
-                                                <div class="info-content">@config.LeftContent</div>
-                                                <div class="info-content">@config.RightContent</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    break;
+                                    <MudNumericField T="double"
+                                                     Label="高度百分比"
+                                                     Value="@region.HeightPercent"
+                                                     ValueChanged="@(value => UpdateRegionHeight(page, region.SortOrder, value))"
+                                                     Immediate="true"
+                                                     Min="0"
+                                                     Max="100"
+                                                     Variant="Variant.Filled"
+                                                     Margin="Margin.Dense"
+                                                     Class="mb-3" />
 
-                                case LayoutType.SingleFull:
-                                    <div class="layout-single">
-                                        <div class="zone-full">
-                                            <video src="@config.MiddleContentUrl" autoplay muted loop style="width:100%; height:100%; object-fit: cover;"></video>
-                                            <div class="overlay-marquee">
-                                                <div class="marquee">@config.TopContent</div>
-                                            </div>
+                                    <MudSelect T="RegionContentType" Label="內容類型" @bind-Value="region.ContentType" Variant="Variant.Outlined" Class="mb-3">
+                                        <MudSelectItem Value="@RegionContentType.Empty">空白區塊</MudSelectItem>
+                                        <MudSelectItem Value="@RegionContentType.Video">影片</MudSelectItem>
+                                        <MudSelectItem Value="@RegionContentType.Image">圖片</MudSelectItem>
+                                        <MudSelectItem Value="@RegionContentType.MarqueeText">跑馬燈文字</MudSelectItem>
+                                        <MudSelectItem Value="@RegionContentType.Clock">即時時鐘</MudSelectItem>
+                                    </MudSelect>
+
+                                    @if (region.ContentType == RegionContentType.MarqueeText)
+                                    {
+                                        <MudTextField @bind-Value="region.TextContent" Label="跑馬燈文字" Lines="2" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
+                                    }
+                                    else if (region.ContentType == RegionContentType.Image || region.ContentType == RegionContentType.Video)
+                                    {
+                                        <MudTextField Value="@GetRegionMediaSummary(region)" Label="已綁定素材" ReadOnly="true" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
+                                        <div class="drop-hint"
+                                             @ondragover:preventDefault
+                                             @ondrop:preventDefault
+                                             @ondrop="@(() => AssignDraggingMediaToRegion(region))">
+                                            將下方素材拖放到此區塊，或直接輸入 URL
                                         </div>
-                                    </div>
-                                    break;
+                                        <MudTextField @bind-Value="region.MediaUrl" Label="媒體 URL" Variant="Variant.Filled" Margin="Margin.Dense" Class="mt-2" />
+                                    }
+                                    else if (region.ContentType == RegionContentType.Clock)
+                                    {
+                                        <MudAlert Severity="Severity.Info" Dense="true">播放時會顯示目前系統時間。</MudAlert>
+                                    }
+                                    else
+                                    {
+                                        <MudAlert Severity="Severity.Warning" Dense="true">此區塊目前沒有指定內容。</MudAlert>
+                                    }
+                                </MudPaper>
                             }
-                        </div>
 
-                        <MudAlert Severity="Severity.Info" Class="mt-4">
-                            版型：<strong>@config.Layout.ToString()</strong> | 
-                            最後修改：<strong>@config.LastModified:yyyy-MM-dd HH:mm:ss</strong>
-                        </MudAlert>
+                            <MudAlert Severity="@(IsRatioValid(page) ? Severity.Success : Severity.Error)" Dense="true" Class="mb-4">
+                                區塊總和：@GetTotalPercentage(page).ToString("0.##")% @if (!IsRatioValid(page)) { <span>，必須等於 100%</span> }
+                            </MudAlert>
+
+                            <div class="d-flex gap-2 mb-4">
+                                <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="SaveConfiguration" FullWidth="true" Disabled="@(!CanSave(page) || _isBusy)">
+                                    <MudIcon Icon="@Icons.Material.Filled.Save" Class="mr-2" />儲存設定
+                                </MudButton>
+                            </div>
+
+                            <MudDivider Class="my-4" />
+
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">素材拖放區</MudText>
+                            @if (_mediaLibrary.Count == 0)
+                            {
+                                <MudAlert Severity="Severity.Info" Dense="true">目前沒有可拖放素材，可在媒體庫新增圖片或影片後回來編排。</MudAlert>
+                            }
+                            else
+                            {
+                                <div class="media-palette">
+                                    @foreach (var media in _mediaLibrary)
+                                    {
+                                        <div class="media-tile"
+                                             draggable="true"
+                                             @ondragstart="@(() => BeginMediaDrag(media.Id))"
+                                             @ondragend="EndMediaDrag">
+                                            <MudIcon Icon="@GetMediaIcon(media.MediaType)" Class="mr-2" />
+                                            <div>
+                                                <div class="media-title">@media.Title</div>
+                                                <div class="media-type">@media.MediaType</div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            <MudDivider Class="my-4" />
+
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">版型清單</MudText>
+                            @foreach (var pageItem in _pages)
+                            {
+                                <MudPaper Class="pa-2 mb-2" Outlined="true">
+                                    <div class="d-flex align-center justify-space-between gap-2">
+                                        <div>
+                                            <MudText Typo="Typo.body2">@pageItem.Name</MudText>
+                                            <MudText Typo="Typo.caption">@pageItem.ZoneCount 區塊 / @(pageItem.IsActive ? "已啟用" : "未啟用")</MudText>
+                                        </div>
+                                        <div class="d-flex gap-1">
+                                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" OnClick="@(() => SelectPage(pageItem.Id))" Disabled="@_isBusy" />
+                                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeletePage(pageItem.Id))" Disabled="@_isBusy" />
+                                        </div>
+                                    </div>
+                                </MudPaper>
+                            }
+
+                            <MudButton Variant="Variant.Outlined" Color="Color.Info" FullWidth="true" Class="mt-2" OnClick="CreateNewPage" Disabled="@_isBusy">
+                                <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-2" />新建版型
+                            </MudButton>
+                        }
                     }
                 </MudPaper>
             </MudItem>
-        </MudGrid>
-    }
+
+            <MudItem xs="12" lg="7">
+                <MudPaper Class="pa-6" Elevation="2">
+                    @if (!string.IsNullOrWhiteSpace(_selectedPageId))
+                    {
+                        var page = GetCurrentPage();
+
+                        <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-4">
+                            <MudText Typo="Typo.h6">
+                                <MudIcon Icon="@Icons.Material.Filled.Tv" Class="mr-2" />
+                                16:9 即時預覽
+                            </MudText>
+                            <MudChip T="string" Color="@(IsRatioValid(page) ? Color.Success : Color.Error)" Variant="Variant.Outlined" Text="@($"總和 {GetTotalPercentage(page):0.##}%")" />
+                        </div>
+
+                        <div class="designer-stage @GetStageClass(page.ScreenOrientation)">
+                            <div class="design-canvas @GetCanvasClass(page.ScreenOrientation)">
+                                @foreach (var region in GetEditableRegions(page))
+                                {
+                                    <div class="preview-region"
+                                         style="@GetRegionStyle(region)"
+                                         @ondragover:preventDefault
+                                         @ondrop:preventDefault
+                                         @ondrop="@(() => AssignDraggingMediaToRegion(region))">
+                                        <div class="region-header">
+                                            <span>@GetRegionDisplayName(region.SortOrder, page.ZoneCount)</span>
+                                            <span>@region.HeightPercent.ToString("0.##")%</span>
+                                        </div>
+
+                                        @switch (region.ContentType)
+                                        {
+                                            case RegionContentType.Video:
+                                                if (!string.IsNullOrWhiteSpace(region.MediaUrl))
+                                                {
+                                                    <video class="region-media" src="@region.MediaUrl" autoplay muted loop playsinline></video>
+                                                }
+                                                else
+                                                {
+                                                    <div class="region-placeholder">拖放影片素材到此區塊</div>
+                                                }
+                                                break;
+                                            case RegionContentType.Image:
+                                                if (!string.IsNullOrWhiteSpace(region.MediaUrl))
+                                                {
+                                                    <img class="region-media" src="@region.MediaUrl" alt="region media" />
+                                                }
+                                                else
+                                                {
+                                                    <div class="region-placeholder">拖放圖片素材到此區塊</div>
+                                                }
+                                                break;
+                                            case RegionContentType.MarqueeText:
+                                                <div class="region-marquee">
+                                                    <div class="region-marquee-track">@(string.IsNullOrWhiteSpace(region.TextContent) ? "請輸入跑馬燈文字" : region.TextContent)</div>
+                                                </div>
+                                                break;
+                                            case RegionContentType.Clock:
+                                                <div class="region-clock">@DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss")</div>
+                                                break;
+                                            default:
+                                                <div class="region-placeholder">空白區塊，可拖放素材或指定內容類型</div>
+                                                break;
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </MudPaper>
+            </MudItem>
+    </MudGrid>
 </MudContainer>
 
 <style>
-    /* TV預覽容器 - 16:9 比例 */
-    .tv-preview-container {
-        position: relative;
-        width: 100%;
-        aspect-ratio: 16 / 9;
-        background-color: #000;
-        border: 4px solid #333;
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    .preset-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+        gap: 0.5rem;
     }
 
-    /* 三段式版型 */
-    .layout-triple {
+    .region-editor-card {
+        background: linear-gradient(180deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.92) 100%);
+    }
+
+    .drop-hint {
+        padding: 0.8rem 1rem;
+        border: 1px dashed rgba(14, 116, 144, 0.45);
+        border-radius: 12px;
+        color: #0f766e;
+        background: rgba(240, 253, 250, 0.8);
+        text-align: center;
+        font-size: 0.9rem;
+    }
+
+    .media-palette {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: 0.75rem;
+    }
+
+    .media-tile {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.9rem;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+        border: 1px solid rgba(59, 130, 246, 0.22);
+        cursor: grab;
+        user-select: none;
+    }
+
+    .media-title {
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .media-type {
+        font-size: 0.8rem;
+        color: #475569;
+    }
+
+    .designer-stage {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 44rem;
+        padding: 1rem;
+        background:
+            radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 30%),
+            radial-gradient(circle at bottom right, rgba(217, 119, 6, 0.14), transparent 28%),
+            linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%);
+        border-radius: 20px;
+    }
+
+    .designer-stage.stage-portrait {
+        min-height: 54rem;
+    }
+
+    .design-canvas {
         display: flex;
         flex-direction: column;
-        height: 100%;
-    }
-
-    .zone-30 {
-        flex: 0 0 30%;
-    }
-
-    .zone-40 {
-        flex: 0 0 40%;
-    }
-
-    .zone-top {
-        background-color: #1a1a1a;
-        display: flex;
-        align-items: center;
-        justify-content: center;
         overflow: hidden;
+        background: #020617;
+        border: 6px solid #0f172a;
+        border-radius: 24px;
+        box-shadow: 0 28px 70px rgba(15, 23, 42, 0.22);
     }
 
-    .zone-mid, .zone-bottom {
-        background-color: #000;
+    .design-canvas.canvas-landscape {
+        width: min(100%, 56rem);
+        aspect-ratio: 16 / 9;
     }
 
-    /* 跑馬燈效果 */
-    .marquee-wrapper {
-        width: 100%;
+    .design-canvas.canvas-portrait {
+        width: min(100%, 22rem);
+        aspect-ratio: 9 / 16;
+    }
+
+    .preview-region {
+        position: relative;
         overflow: hidden;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.82) 0%, rgba(30, 41, 59, 0.92) 100%);
     }
 
-    .marquee {
-        animation: marquee 10s linear infinite;
-        white-space: nowrap;
-        color: #fff;
-        font-size: 24px;
-        font-weight: bold;
-        padding: 10px;
+    .preview-region:last-child {
+        border-bottom: none;
     }
 
-    @@keyframes marquee {
-        0% {
-            transform: translateX(100%);
-        }
-        100% {
-            transform: translateX(-100%);
-        }
-    }
-
-    /* L型版型 */
-    .layout-ltype {
-        display: flex;
-        height: 100%;
-    }
-
-    .zone-right {
-        flex: 0 0 65%;
-        background-color: #000;
-    }
-
-    .zone-left {
-        flex: 0 0 35%;
-        background-color: #1a1a1a;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-    }
-
-    .info-box {
-        width: 100%;
-    }
-
-    .info-content {
-        color: #fff;
-        font-size: 14px;
-        margin-bottom: 10px;
-        padding: 10px;
-        background-color: rgba(255,255,255,0.1);
-        border-radius: 4px;
-    }
-
-    /* 全螢幕版型 */
-    .layout-single {
-        position: relative;
-        height: 100%;
-    }
-
-    .zone-full {
-        position: relative;
-        width: 100%;
-        height: 100%;
-    }
-
-    .overlay-marquee {
+    .region-header {
         position: absolute;
-        top: 20px;
-        left: 0;
-        right: 0;
-        background: rgba(0,0,0,0.6);
-        overflow: hidden;
+        top: 0.6rem;
+        left: 0.8rem;
+        right: 0.8rem;
+        z-index: 3;
+        display: flex;
+        justify-content: space-between;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.85rem;
+        font-weight: 700;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
     }
 
-    .overlay-marquee .marquee {
-        font-size: 20px;
+    .region-media {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .region-placeholder,
+    .region-clock,
+    .region-marquee {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        text-align: center;
+    }
+
+    .region-placeholder {
+        padding: 1rem;
+        color: rgba(255, 255, 255, 0.78);
+        background: repeating-linear-gradient(
+            -45deg,
+            rgba(51, 65, 85, 0.8),
+            rgba(51, 65, 85, 0.8) 12px,
+            rgba(30, 41, 59, 0.92) 12px,
+            rgba(30, 41, 59, 0.92) 24px
+        );
+    }
+
+    .region-marquee {
+        overflow: hidden;
+        background: linear-gradient(90deg, rgba(2, 132, 199, 0.92) 0%, rgba(14, 165, 233, 0.8) 100%);
+    }
+
+    .region-marquee-track {
+        white-space: nowrap;
+        font-size: clamp(1rem, 2vw, 1.8rem);
+        font-weight: 700;
+        padding: 0 1rem;
+        animation: marquee-flow 14s linear infinite;
+    }
+
+    .region-clock {
+        font-size: clamp(1.1rem, 2.6vw, 2.4rem);
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        background: radial-gradient(circle at center, rgba(30, 64, 175, 0.55), rgba(15, 23, 42, 0.95));
+    }
+
+    @@keyframes marquee-flow {
+        0% { transform: translateX(60%); }
+        100% { transform: translateX(-60%); }
     }
 </style>
 
 @code {
-    [CascadingParameter]
-    public string SelectedCenter { get; set; } = "";
+    private readonly LayoutPreset[] _presets =
+    [
+        new("33 / 33 / 33", [33, 33, 34]),
+        new("50 / 50", [50, 50]),
+        new("30 / 70", [30, 70]),
+        new("20 / 60 / 20", [20, 60, 20]),
+        new("100% 全螢幕", [100])
+    ];
 
     private List<SignagePage> _pages = new();
+    private List<MediaContent> _mediaLibrary = new();
     private string _selectedPageId = "";
+    private string? _draggingMediaId;
     private bool _isBusy;
+    private bool _isLoadingCenterData;
     private string _busyMessage = "";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        // 初始化示範數據
-        InitializePages();
+        await LoadLayoutLibraryAsync();
     }
 
-    protected override void OnParametersSet()
-    {
-        // 當選擇的中心改變時，重新加載版型
-        if (!string.IsNullOrEmpty(SelectedCenter))
-        {
-            InitializePages();
-        }
-    }
-
-    private void InitializePages()
+    private async Task LoadLayoutLibraryAsync()
     {
         _pages.Clear();
+        _mediaLibrary.Clear();
+        _selectedPageId = "";
 
-        // 為示範中心建立預設版型
-        if (SelectedCenter == "左營遊客中心")
-        {
-            _pages.Add(new SignagePage
-            {
-                Id = "page-1",
-                Name = "三段式版型",
-                Layout = LayoutType.TripleVertical,
-                TopContent = "★ 歡迎光臨左營遊客中心 ★",
-                MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
-                BottomContentUrl = "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80"
-            });
+        _isLoadingCenterData = true;
 
-            _pages.Add(new SignagePage
-            {
-                Id = "page-2",
-                Name = "L型資訊版型",
-                Layout = LayoutType.LType,
-                TopContent = "景點推薦",
-                MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
-                LeftContent = "蓮池潭\n龍虎塔\n孔子廟"
-            });
-        }
-        else if (SelectedCenter == "旗津遊客中心")
+        try
         {
-            _pages.Add(new SignagePage
+            _pages = await ApiClient.GetAllSignagePagesAsync();
+            _mediaLibrary = await LoadAllMediaLibraryAsync();
+
+            foreach (var page in _pages)
             {
-                Id = "page-3",
-                Name = "全螢幕版型",
-                Layout = LayoutType.SingleFull,
-                TopContent = "★ 旗津風景區 ★",
-                MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4"
-            });
+                NormalizePage(page);
+            }
+
+            _selectedPageId = _pages.FirstOrDefault()?.Id ?? "";
         }
-        else
+        finally
         {
-            _pages.Add(new SignagePage
-            {
-                Id = "page-default",
-                Name = "預設版型",
-                Layout = LayoutType.TripleVertical,
-                TopContent = $"★ 歡迎光臨 {SelectedCenter} ★",
-                MiddleContentUrl = "https://www.w3schools.com/html/mov_bbb.mp4",
-                BottomContentUrl = "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=800&q=80"
-            });
+            _isLoadingCenterData = false;
+        }
+    }
+
+    private async Task<List<MediaContent>> LoadAllMediaLibraryAsync()
+    {
+        var centers = await ApiClient.GetAllVisitorCentersAsync();
+        var allMedia = new List<MediaContent>();
+        foreach (var center in centers)
+        {
+            var media = await ApiClient.GetMediaByCenterAsync(center.Id);
+            allMedia.AddRange(media);
         }
 
-        if (_pages.Count > 0 && string.IsNullOrEmpty(_selectedPageId))
-        {
-            _selectedPageId = _pages[0].Id;
-        }
+        return allMedia
+            .GroupBy(item => item.Id)
+            .Select(group => group.First())
+            .ToList();
     }
 
     private SignagePage GetCurrentPage()
@@ -372,46 +497,39 @@
         return _pages.FirstOrDefault(p => p.Id == _selectedPageId) ?? new SignagePage();
     }
 
-    private async Task SelectPage(string pageId)
+    private Task SelectPage(string pageId)
     {
-        await RunBusyActionAsync("切換版型中...", () =>
-        {
-            _selectedPageId = pageId;
-            return Task.CompletedTask;
-        }, "版型已切換");
+        _selectedPageId = pageId;
+        return Task.CompletedTask;
     }
 
     private async Task CreateNewPage()
     {
-        await RunBusyActionAsync("建立新版型中...", () =>
+        await RunBusyActionAsync("建立新版型中...", async () =>
         {
-            var newPage = new SignagePage
-            {
-                Id = Guid.NewGuid().ToString(),
-                Name = $"新版型 {_pages.Count + 1}",
-                VisitorCenterId = SelectedCenter,
-                Layout = LayoutType.TripleVertical
-            };
-            _pages.Add(newPage);
-            _selectedPageId = newPage.Id;
-            return Task.CompletedTask;
+            var created = await ApiClient.CreateSignagePageAsync("", $"新版型 {_pages.Count + 1}", LayoutType.TripleVertical);
+            if (created == null)
+                throw new InvalidOperationException("建立版型失敗");
+
+            NormalizePage(created);
+            _pages.Add(created);
+            _selectedPageId = created.Id;
         }, "已建立新版型");
     }
 
     private async Task DeletePage(string pageId)
     {
-        await RunBusyActionAsync("刪除版型中...", () =>
+        await RunBusyActionAsync("刪除版型中...", async () =>
         {
-            var pageToDelete = _pages.FirstOrDefault(p => p.Id == pageId);
-            if (pageToDelete != null)
+            var ok = await ApiClient.DeleteSignagePageAsync(pageId);
+            if (!ok)
+                throw new InvalidOperationException("刪除失敗");
+
+            _pages = _pages.Where(p => p.Id != pageId).ToList();
+            if (_selectedPageId == pageId)
             {
-                _pages.Remove(pageToDelete);
-                if (_selectedPageId == pageId)
-                {
-                    _selectedPageId = _pages.FirstOrDefault()?.Id ?? "";
-                }
+                _selectedPageId = _pages.FirstOrDefault()?.Id ?? "";
             }
-            return Task.CompletedTask;
         }, "版型已刪除");
     }
 
@@ -420,20 +538,243 @@
         await RunBusyActionAsync("儲存設定中...", async () =>
         {
             var page = GetCurrentPage();
-            page.LastModified = DateTime.Now;
-            await Task.Delay(350);
-            // TODO: 調用後端 API 保存配置
-        }, "設定已儲存");
+            if (!CanSave(page))
+                throw new InvalidOperationException("區塊比例總和必須等於 100%");
+
+            PreparePageForPersistence(page);
+            var success = await ApiClient.UpdateSignagePageAsync(page.Id, page);
+            if (!success)
+                throw new InvalidOperationException("儲存失敗");
+        }, "設定已儲存（SQLite）");
     }
 
-    private async Task PushToDevices()
+    private void ApplyPreset(SignagePage page, LayoutPreset preset)
     {
-        await RunBusyActionAsync("推送中，請稍候...", async () =>
+        page.ZoneCount = preset.Ratios.Length;
+        page.Regions = EnsureRegionCount(page.Regions, page.ZoneCount);
+
+        for (var index = 0; index < preset.Ratios.Length; index++)
         {
-            _ = GetCurrentPage();
-            await Task.Delay(500);
-            // TODO: 調用後端 API 推送至設備
-        }, "已送出推送命令");
+            page.Regions[index].HeightPercent = preset.Ratios[index];
+            page.Regions[index].SortOrder = index;
+            page.Regions[index].Name = GetRegionDisplayName(index, page.ZoneCount);
+        }
+
+        SetDerivedLayout(page);
+    }
+
+    private bool IsPresetActive(SignagePage page, LayoutPreset preset)
+    {
+        var regions = GetEditableRegions(page).ToList();
+        if (regions.Count != preset.Ratios.Length)
+            return false;
+
+        for (var index = 0; index < preset.Ratios.Length; index++)
+        {
+            if (Math.Abs(regions[index].HeightPercent - preset.Ratios[index]) > 0.01)
+                return false;
+        }
+
+        return true;
+    }
+
+    private void SetZoneCount(SignagePage page, int zoneCount)
+    {
+        page.ZoneCount = Math.Clamp(zoneCount, 1, 3);
+        page.Regions = EnsureRegionCount(page.Regions, page.ZoneCount);
+
+        var equalSize = Math.Round(100d / page.ZoneCount, 2);
+        var remaining = 100d;
+        for (var index = 0; index < page.ZoneCount; index++)
+        {
+            var value = index == page.ZoneCount - 1 ? remaining : equalSize;
+            page.Regions[index].HeightPercent = value;
+            page.Regions[index].SortOrder = index;
+            page.Regions[index].Name = GetRegionDisplayName(index, page.ZoneCount);
+            remaining -= value;
+        }
+
+        SetDerivedLayout(page);
+    }
+
+    private void UpdateRegionHeight(SignagePage page, int sortOrder, double value)
+    {
+        var region = GetEditableRegions(page).FirstOrDefault(r => r.SortOrder == sortOrder);
+        if (region == null)
+            return;
+
+        region.HeightPercent = Math.Clamp(Math.Round(value, 2), 0, 100);
+    }
+
+    private IEnumerable<SignageRegion> GetEditableRegions(SignagePage page)
+    {
+        page.Regions = EnsureRegionCount(page.Regions, page.ZoneCount);
+        return page.Regions.OrderBy(region => region.SortOrder).Take(page.ZoneCount);
+    }
+
+    private double GetTotalPercentage(SignagePage page)
+    {
+        return GetEditableRegions(page).Sum(region => region.HeightPercent);
+    }
+
+    private bool IsRatioValid(SignagePage page)
+    {
+        return Math.Abs(GetTotalPercentage(page) - 100d) < 0.01;
+    }
+
+    private bool CanSave(SignagePage page)
+    {
+        return !string.IsNullOrWhiteSpace(page.Id) && IsRatioValid(page);
+    }
+
+    private void BeginMediaDrag(string mediaId)
+    {
+        _draggingMediaId = mediaId;
+    }
+
+    private void EndMediaDrag()
+    {
+        _draggingMediaId = null;
+    }
+
+    private void AssignDraggingMediaToRegion(SignageRegion region)
+    {
+        if (string.IsNullOrWhiteSpace(_draggingMediaId))
+            return;
+
+        var media = _mediaLibrary.FirstOrDefault(item => item.Id == _draggingMediaId);
+        if (media == null)
+            return;
+
+        region.MediaId = media.Id;
+        region.MediaUrl = media.Url;
+        region.TextContent = media.MediaType == "Text" ? media.Title : region.TextContent;
+        region.ContentType = media.MediaType switch
+        {
+            "Video" => RegionContentType.Video,
+            "Image" => RegionContentType.Image,
+            "Text" => RegionContentType.MarqueeText,
+            _ => region.ContentType
+        };
+
+        _draggingMediaId = null;
+    }
+
+    private string GetRegionMediaSummary(SignageRegion region)
+    {
+        if (!string.IsNullOrWhiteSpace(region.MediaId))
+        {
+            var media = _mediaLibrary.FirstOrDefault(item => item.Id == region.MediaId);
+            if (media != null)
+                return media.Title;
+        }
+
+        return string.IsNullOrWhiteSpace(region.MediaUrl) ? "尚未綁定素材" : region.MediaUrl;
+    }
+
+    private void NormalizePage(SignagePage page)
+    {
+        page.ZoneCount = Math.Clamp(page.ZoneCount <= 0 ? page.Regions.Count : page.ZoneCount, 1, 3);
+        page.Regions = EnsureRegionCount(page.Regions, page.ZoneCount);
+        SetDerivedLayout(page);
+    }
+
+    private void PreparePageForPersistence(SignagePage page)
+    {
+        NormalizePage(page);
+        SyncLegacyFieldsFromRegions(page);
+        page.LastModified = DateTime.Now;
+    }
+
+    private static List<SignageRegion> EnsureRegionCount(List<SignageRegion>? regions, int zoneCount)
+    {
+        var current = (regions ?? new List<SignageRegion>())
+            .OrderBy(region => region.SortOrder)
+            .Take(3)
+            .ToList();
+
+        for (var index = current.Count; index < zoneCount; index++)
+        {
+            current.Add(new SignageRegion
+            {
+                SortOrder = index,
+                Name = GetRegionDisplayName(index, zoneCount),
+                HeightPercent = zoneCount == 1 ? 100 : Math.Round(100d / zoneCount, 2),
+                ContentType = RegionContentType.Empty
+            });
+        }
+
+        return current
+            .Take(zoneCount)
+            .Select((region, index) =>
+            {
+                region.SortOrder = index;
+                region.Name = GetRegionDisplayName(index, zoneCount);
+                return region;
+            })
+            .ToList();
+    }
+
+    private void SyncLegacyFieldsFromRegions(SignagePage page)
+    {
+        var regions = GetEditableRegions(page).ToList();
+
+        page.TopContent = regions.FirstOrDefault(region => region.ContentType == RegionContentType.MarqueeText)?.TextContent ?? "";
+        page.MiddleContentUrl = regions.FirstOrDefault(region => region.ContentType == RegionContentType.Video)?.MediaUrl ?? "";
+        page.BottomContentUrl = regions.FirstOrDefault(region => region.ContentType == RegionContentType.Image)?.MediaUrl ?? "";
+        page.LeftContent = regions.ElementAtOrDefault(0)?.TextContent ?? "";
+        page.RightContent = regions.ElementAtOrDefault(1)?.TextContent ?? "";
+    }
+
+    private static void SetDerivedLayout(SignagePage page)
+    {
+        page.Layout = page.ZoneCount switch
+        {
+            1 => LayoutType.SingleFull,
+            2 => LayoutType.LType,
+            _ => LayoutType.TripleVertical
+        };
+    }
+
+    private static string GetRegionStyle(SignageRegion region)
+    {
+        return $"height: {Math.Max(region.HeightPercent, 0)}%;";
+    }
+
+    private static string GetRegionDisplayName(int index, int zoneCount)
+    {
+        return zoneCount switch
+        {
+            1 => "主區塊",
+            2 => index == 0 ? "上區塊" : "下區塊",
+            _ => index switch
+            {
+                0 => "上區塊",
+                1 => "中區塊",
+                _ => "下區塊"
+            }
+        };
+    }
+
+    private string GetStageClass(ScreenOrientation orientation)
+    {
+        return orientation == ScreenOrientation.Portrait9x16 ? "stage-portrait" : "stage-landscape";
+    }
+
+    private string GetCanvasClass(ScreenOrientation orientation)
+    {
+        return orientation == ScreenOrientation.Portrait9x16 ? "canvas-portrait" : "canvas-landscape";
+    }
+
+    private string GetMediaIcon(string mediaType)
+    {
+        return mediaType switch
+        {
+            "Video" => Icons.Material.Filled.Movie,
+            "Image" => Icons.Material.Filled.Image,
+            "Text" => Icons.Material.Filled.TextSnippet,
+            _ => Icons.Material.Filled.Attachment
+        };
     }
 
     private async Task RunBusyActionAsync(string message, Func<Task> action, string successMessage)
@@ -461,4 +802,6 @@
             StateHasChanged();
         }
     }
+
+    private sealed record LayoutPreset(string Label, double[] Ratios);
 }

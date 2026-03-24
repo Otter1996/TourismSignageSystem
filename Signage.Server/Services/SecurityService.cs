@@ -6,15 +6,25 @@ namespace Signage.Server.Services;
 
 public class SecurityService
 {
-    private readonly List<UserAccount> _users = new();
-    private readonly List<AuditLogEntry> _auditLogs = new();
+    private const string UsersCategory = "users";
+    private const string AuditLogsCategory = "audit-logs";
+    private readonly SqliteJsonStore _store;
+    private List<UserAccount> _users = new();
+    private List<AuditLogEntry> _auditLogs = new();
     private readonly Dictionary<string, CaptchaChallenge> _captchaStore = new();
     private readonly ILogger<SecurityService> _logger;
 
-    public SecurityService(ILogger<SecurityService> logger)
+    public SecurityService(ILogger<SecurityService> logger, SqliteJsonStore store)
     {
         _logger = logger;
-        InitializeDefaultAdmin();
+        _store = store;
+        _users = _store.LoadAll<UserAccount>(UsersCategory);
+        _auditLogs = _store.LoadAll<AuditLogEntry>(AuditLogsCategory);
+
+        if (!_users.Any())
+        {
+            InitializeDefaultAdmin();
+        }
     }
 
     public IEnumerable<UserAccount> GetUsers()
@@ -69,6 +79,7 @@ public class SecurityService
         };
 
         _users.Add(user);
+    PersistUsers();
         AddAudit(createdBy, "User.Create", username, true, $"建立角色 {role}", "", "");
         return (true, "建立成功", user);
     }
@@ -164,6 +175,7 @@ public class SecurityService
             return (false, "新密碼不可與前三組密碼相同");
 
         ApplyPassword(user, newPassword);
+    PersistUsers();
         AddAudit(username, "Auth.ChangePassword", username, true, "密碼更新成功", ipAddress, userAgent);
         return (true, "密碼更新成功");
     }
@@ -189,6 +201,8 @@ public class SecurityService
 
         if (_auditLogs.Count > 5000)
             _auditLogs.RemoveRange(0, 500);
+
+    PersistAuditLogs();
     }
 
     private static (bool success, string message) ValidatePasswordPolicy(string password)
@@ -305,5 +319,15 @@ public class SecurityService
         var result = CreateUser("admin", "System Admin", UserRoles.Admin, "Admin@123", "system");
         if (result.success)
             AddAudit("system", "System.Init", "admin", true, "建立預設系統管理員帳號", "", "");
+    }
+
+    private void PersistUsers()
+    {
+        _store.ReplaceAll(UsersCategory, _users, item => item.Id);
+    }
+
+    private void PersistAuditLogs()
+    {
+        _store.ReplaceAll(AuditLogsCategory, _auditLogs, item => item.Id);
     }
 }

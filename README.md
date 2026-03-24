@@ -23,6 +23,11 @@
 - **Visual Studio 2022** 或 **VS Code** + C# 擴展
 - **Windows / macOS / Linux** 環境
 
+### 資料儲存
+- 後端目前使用 SQLite 持久化資料
+- 預設資料庫檔案位置：`Signage.Server/Data/signage.db`
+- 首次啟動後端時會自動建立資料庫與預設管理員帳號
+
 ### 安裝步驟
 
 #### 1️⃣ 克隆或下載專案

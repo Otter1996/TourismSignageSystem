@@ -42,6 +42,39 @@ public class DevicesController : ControllerBase
     }
 
     /// <summary>
+    /// 取得中心 > 設備 層級清單
+    /// </summary>
+    [HttpGet("center/{centerId}/hierarchy")]
+    [Authorize(Roles = "Admin,Operator")]
+    public ActionResult<List<DeviceHierarchyNode>> GetHierarchyByCenter(string centerId)
+    {
+        return Ok(_dataService.GetDeviceHierarchyByCenter(centerId));
+    }
+
+    /// <summary>
+    /// 更新設備設定（名稱、版型、方向、slug）
+    /// </summary>
+    [HttpPut("center/{centerId}/device/{deviceNumber}")]
+    [Authorize(Roles = "Admin,Operator")]
+    public ActionResult UpdateDeviceConfig(string centerId, int deviceNumber, [FromBody] UpdateDeviceConfigRequest request)
+    {
+        var success = _dataService.UpdateDeviceConfig(
+            centerId,
+            deviceNumber,
+            request.DeviceName,
+            request.AssignedPageId,
+            request.ScreenOrientation,
+            request.IsActive,
+            request.DeviceSlug);
+
+        if (!success)
+            return BadRequest(new { message = "設備設定更新失敗（可能是 slug 重複或設備不存在）" });
+
+        _securityService.AddAudit(User.Identity?.Name ?? "unknown", "Device.UpdateConfig", $"{centerId}:{deviceNumber}", true, "更新設備設定", HttpContext.Connection.RemoteIpAddress?.ToString() ?? "", Request.Headers.UserAgent.ToString());
+        return Ok(new { message = "設備設定已更新" });
+    }
+
+    /// <summary>
     /// 註冊新設備
     /// </summary>
     [HttpPost("register")]
@@ -54,11 +87,23 @@ public class DevicesController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.DeviceName))
             return BadRequest(new { message = "設備名稱不能為空" });
 
-        var device = _dataService.RegisterDevice(
-            request.CenterId,
-            request.DeviceName,
-            request.IpAddress ?? ""
-        );
+        DeviceStatus device;
+        try
+        {
+            device = _dataService.RegisterDevice(
+                request.CenterId,
+                request.DeviceName,
+                request.IpAddress ?? ""
+            );
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "max-devices-reached")
+        {
+            return BadRequest(new { message = "每個中心最多只能設定 3 台設備" });
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "center-not-found")
+        {
+            return NotFound(new { message = "中心不存在" });
+        }
 
         _securityService.AddAudit(User.Identity?.Name ?? "unknown", "Device.Register", device.DeviceId, true, $"註冊設備 {device.DeviceName}", HttpContext.Connection.RemoteIpAddress?.ToString() ?? "", Request.Headers.UserAgent.ToString());
 
@@ -89,4 +134,13 @@ public class RegisterDeviceRequest
     public string CenterId { get; set; } = "";
     public string DeviceName { get; set; } = "";
     public string? IpAddress { get; set; }
+}
+
+public class UpdateDeviceConfigRequest
+{
+    public string? DeviceName { get; set; }
+    public string? AssignedPageId { get; set; }
+    public ScreenOrientation? ScreenOrientation { get; set; }
+    public bool? IsActive { get; set; }
+    public string? DeviceSlug { get; set; }
 }

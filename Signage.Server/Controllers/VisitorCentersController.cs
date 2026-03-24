@@ -26,6 +26,7 @@ public class VisitorCentersController : ControllerBase
     /// 取得所有遊客中心
     /// </summary>
     [HttpGet]
+    [AllowAnonymous]
     public ActionResult<List<VisitorCenter>> GetAll()
     {
         return Ok(_dataService.GetAllVisitorCenters());
@@ -35,6 +36,7 @@ public class VisitorCentersController : ControllerBase
     /// 取得單一遊客中心
     /// </summary>
     [HttpGet("{centerId}")]
+    [AllowAnonymous]
     public ActionResult<VisitorCenter> GetById(string centerId)
     {
         var center = _dataService.GetVisitorCenter(centerId);

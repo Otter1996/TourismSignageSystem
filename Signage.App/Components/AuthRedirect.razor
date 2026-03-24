@@ -1,0 +1,19 @@
+@using MudBlazor
+@inject NavigationManager Navigation
+
+<div class="d-flex align-center justify-center" style="min-height: 100vh;">
+    <MudProgressCircular Indeterminate="true" Size="Size.Large" Color="Color.Primary" />
+</div>
+
+@code {
+    [Parameter]
+    public string TargetPath { get; set; } = "/";
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Navigation.NavigateTo(TargetPath);
+        }
+    }
+}

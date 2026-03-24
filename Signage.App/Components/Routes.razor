@@ -1,9 +1,59 @@
 ﻿@using Microsoft.AspNetCore.Components.Web
+@inject AuthSessionService AuthSession
 @rendermode InteractiveServer
 
 <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        @if (!_isAuthReady)
+        {
+            <div class="d-flex align-center justify-center" style="min-height: 100vh;">
+                <MudProgressCircular Indeterminate="true" Size="Size.Large" Color="Color.Primary" />
+            </div>
+        }
+        else if (ShouldRedirectToLogin(routeData.PageType))
+        {
+            <AuthRedirect TargetPath="/login" />
+        }
+        else if (ShouldRedirectToHome(routeData.PageType))
+        {
+            <AuthRedirect TargetPath="/" />
+        }
+        else
+        {
+            <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        }
     </Found>
 </Router>
+
+@code {
+    private bool _isAuthReady;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        await AuthSession.InitializeAsync();
+        _isAuthReady = true;
+        StateHasChanged();
+    }
+
+    private static bool IsPublicPage(Type pageType)
+    {
+        return pageType == typeof(Pages.Login)
+            || pageType == typeof(Pages.Display)
+            || pageType == typeof(Pages.NotFound)
+            || pageType == typeof(Pages.Error);
+    }
+
+    private bool ShouldRedirectToLogin(Type pageType)
+    {
+        return !IsPublicPage(pageType) && !AuthSession.IsAuthenticated;
+    }
+
+    private bool ShouldRedirectToHome(Type pageType)
+    {
+        return pageType == typeof(Pages.Login) && AuthSession.IsAuthenticated;
+    }
+}

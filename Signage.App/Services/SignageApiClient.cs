@@ -210,6 +210,25 @@ public class SignageApiClient
 
     // ============= 版型配置 API =============
 
+    public async Task<List<SignagePage>> GetAllSignagePagesAsync()
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<List<SignagePage>>() ?? new();
+            }
+            return new();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error fetching all signage pages: {ex.Message}");
+            return new();
+        }
+    }
+
     public async Task<List<SignagePage>> GetPagesByCenterAsync(string centerId)
     {
         try
@@ -244,6 +263,25 @@ public class SignageApiClient
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Error fetching signage page: {ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<SignagePage?> GetActivePageByCenterAsync(string centerId)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages/center/{centerId}/active");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<SignagePage>();
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error fetching active signage page: {ex.Message}");
             return null;
         }
     }
@@ -296,6 +334,81 @@ public class SignageApiClient
         {
             Console.Error.WriteLine($"Error activating page: {ex.Message}");
             return false;
+        }
+    }
+
+    public async Task<bool> DeleteSignagePageAsync(string pageId)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.DeleteAsync($"{_apiBaseUrl}/signagepages/{pageId}");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error deleting signage page: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 根據設備 ID 取得該設備的播放版型
+    /// </summary>
+    public async Task<SignagePage?> GetPageByDeviceAsync(string deviceId)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages/device/{deviceId}");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<SignagePage>();
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error fetching page by device: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 根據中心 ID 和設備編號取得該設備的播放版型
+    /// </summary>
+    public async Task<SignagePage?> GetPageByDeviceNumberAsync(string centerId, int deviceNumber)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages/center/{centerId}/device/{deviceNumber}");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<SignagePage>();
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error fetching page by device number: {ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<SignagePage?> GetPageByDeviceSlugAsync(string deviceSlug)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages/play/{deviceSlug}");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<SignagePage>();
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error fetching page by slug: {ex.Message}");
+            return null;
         }
     }
 
@@ -361,6 +474,25 @@ public class SignageApiClient
         }
     }
 
+    public async Task<List<DeviceHierarchyNode>> GetDeviceHierarchyByCenterAsync(string centerId)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/devices/center/{centerId}/hierarchy");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<List<DeviceHierarchyNode>>() ?? new();
+            }
+            return new();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error fetching device hierarchy: {ex.Message}");
+            return new();
+        }
+    }
+
     public async Task<DeviceStatus?> RegisterDeviceAsync(string centerId, string deviceName, string ipAddress)
     {
         try
@@ -392,6 +524,29 @@ public class SignageApiClient
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Error updating device heartbeat: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<bool> UpdateDeviceConfigAsync(string centerId, int deviceNumber, string deviceName, string assignedPageId, ScreenOrientation screenOrientation, bool isActive, string deviceSlug)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var request = new
+            {
+                deviceName,
+                assignedPageId,
+                screenOrientation,
+                isActive,
+                deviceSlug
+            };
+            var response = await _httpClient.PutAsJsonAsync($"{_apiBaseUrl}/devices/center/{centerId}/device/{deviceNumber}", request);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error updating device config: {ex.Message}");
             return false;
         }
     }
