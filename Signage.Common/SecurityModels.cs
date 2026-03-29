@@ -32,6 +32,14 @@ public class UserAccount
     public string CreatedBy { get; set; } = "system";
 
     public List<PasswordHistoryEntry> PasswordHistory { get; set; } = new();
+
+    // 帳號鎖定
+    public int FailedLoginCount { get; set; } = 0;
+    public DateTime? LockoutUntilUtc { get; set; }
+
+    // TOTP 多重認證
+    public string? TotpSecret { get; set; }
+    public bool IsMfaEnabled { get; set; } = false;
 }
 
 public class CaptchaChallenge
@@ -52,6 +60,18 @@ public class AuditLogEntry
     public string Detail { get; set; } = "";
     public string IpAddress { get; set; } = "";
     public string UserAgent { get; set; } = "";
+    // 日誌完整性雜湊鏈（SHA256 of previous hash + current entry content）
+    public string IntegrityHash { get; set; } = "";
+}
+
+public class AuditLogQuery
+{
+    public int Limit { get; set; } = 200;
+    public DateTime? FromUtc { get; set; }
+    public DateTime? ToUtc { get; set; }
+    public string? Username { get; set; }
+    public string? Action { get; set; }
+    public bool? Success { get; set; }
 }
 
 public class AuthResult
@@ -59,5 +79,6 @@ public class AuthResult
     public bool Success { get; set; }
     public string Message { get; set; } = "";
     public bool RequiresPasswordChange { get; set; }
+    public bool RequiresMfa { get; set; }
     public UserAccount? User { get; set; }
 }

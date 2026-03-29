@@ -60,7 +60,12 @@ public class SignageApiClient
             });
 
             if (!response.IsSuccessStatusCode)
-                return null;
+            {
+                return new LoginResponse
+                {
+                    Message = await ReadErrorMessageAsync(response, "登入失敗，請確認帳密與驗證碼")
+                };
+            }
 
             return await response.Content.ReadFromJsonAsync<LoginResponse>();
         }
@@ -135,16 +140,172 @@ public class SignageApiClient
         }
     }
 
-    public async Task<List<AuditLogEntry>> GetAuditLogsAsync(int limit = 200)
+    public async Task<(bool success, string message)> ToggleUserActiveAsync(string username)
     {
         try
         {
             AttachAuthHeader();
-            return await _httpClient.GetFromJsonAsync<List<AuditLogEntry>>($"{_apiBaseUrl}/auditlogs?limit={limit}") ?? new();
+            var response = await _httpClient.PutAsync($"{_apiBaseUrl}/users/{Uri.EscapeDataString(username)}/toggle-active", null);
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                return (false, err);
+            }
+            return (true, "狀態已更新");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public async Task<(bool success, string message)> AdminResetPasswordAsync(string username, string newPassword)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.PutAsJsonAsync($"{_apiBaseUrl}/users/{Uri.EscapeDataString(username)}/reset-password", new { newPassword });
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                return (false, err);
+            }
+            return (true, "密碼重設成功");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public async Task<(bool success, string message)> UpdateUserRoleAsync(string username, string role)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.PutAsJsonAsync($"{_apiBaseUrl}/users/{Uri.EscapeDataString(username)}/role", new { role });
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                return (false, err);
+            }
+            return (true, "角色更新成功");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public async Task<(bool success, string? otpUri, string? secret, string message)> SetupMfaAsync()
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.PostAsync($"{_apiBaseUrl}/auth/mfa/setup", null);
+            if (!response.IsSuccessStatusCode)
+                return (false, null, null, "MFA 初始化失敗");
+
+            var data = await response.Content.ReadFromJsonAsync<MfaSetupResponse>();
+            return (true, data?.OtpUri, data?.Secret, data?.Message ?? "");
+        }
+        catch (Exception ex)
+        {
+            return (false, null, null, ex.Message);
+        }
+    }
+
+    public async Task<(bool success, string message)> ConfirmMfaAsync(string totpCode)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/auth/mfa/confirm", new { totpCode });
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                return (false, err);
+            }
+            return (true, "MFA 啟用成功");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public async Task<(bool success, string message)> DisableMfaAsync(string username)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/auth/mfa/disable", new { username });
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync();
+                return (false, err);
+            }
+            return (true, "MFA 已停用");
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    public async Task<LoginResponse?> VerifyMfaAsync(string userId, string totpCode)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/auth/mfa/verify", new { userId, totpCode });
+            if (!response.IsSuccessStatusCode)
+                return null;
+            return await response.Content.ReadFromJsonAsync<LoginResponse>();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<List<AuditLogEntry>> GetAuditLogsAsync(AuditLogQuery? query = null)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var path = $"{_apiBaseUrl}/auditlogs{BuildAuditLogQueryString(query)}";
+            return await _httpClient.GetFromJsonAsync<List<AuditLogEntry>>(path) ?? new();
         }
         catch
         {
             return new();
+        }
+    }
+
+    public async Task<(bool success, string fileName, string base64Content, string message)> ExportAuditLogsCsvAsync(AuditLogQuery? query = null)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var path = $"{_apiBaseUrl}/auditlogs/export{BuildAuditLogQueryString(query)}";
+            var response = await _httpClient.GetAsync(path);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return (false, string.Empty, string.Empty, await ReadErrorMessageAsync(response, "匯出 CSV 失敗"));
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            var contentDisposition = response.Content.Headers.ContentDisposition;
+            var fileName = contentDisposition?.FileNameStar
+                           ?? contentDisposition?.FileName?.Trim('"')
+                           ?? $"audit-logs-{DateTime.UtcNow:yyyyMMddHHmmss}.csv";
+
+            return (true, fileName, Convert.ToBase64String(bytes), string.Empty);
+        }
+        catch (Exception ex)
+        {
+            return (false, string.Empty, string.Empty, ex.Message);
         }
     }
 
@@ -359,7 +520,7 @@ public class SignageApiClient
     {
         try
         {
-            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages/device/{deviceId}");
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/devices/{deviceId}/play");
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<SignagePage>();
@@ -380,7 +541,7 @@ public class SignageApiClient
     {
         try
         {
-            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages/center/{centerId}/device/{deviceNumber}");
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/devices/center/{centerId}/device/{deviceNumber}/play");
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<SignagePage>();
@@ -398,7 +559,7 @@ public class SignageApiClient
     {
         try
         {
-            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/signagepages/play/{deviceSlug}");
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/devices/play/{deviceSlug}");
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<SignagePage>();
@@ -412,14 +573,49 @@ public class SignageApiClient
         }
     }
 
-    // ============= 媒體 API =============
-
-    public async Task<List<MediaContent>> GetMediaByCenterAsync(string centerId)
+    public async Task<List<DeviceRegionContent>> GetDeviceRegionContentsAsync(string centerId, int deviceNumber)
     {
         try
         {
             AttachAuthHeader();
-            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/media/center/{centerId}");
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/devices/center/{centerId}/device/{deviceNumber}/content");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<List<DeviceRegionContent>>() ?? new();
+            }
+            return new();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error fetching device contents: {ex.Message}");
+            return new();
+        }
+    }
+
+    public async Task<bool> UpdateDeviceRegionContentsAsync(string centerId, int deviceNumber, List<DeviceRegionContent> regionContents)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var request = new { regionContents };
+            var response = await _httpClient.PutAsJsonAsync($"{_apiBaseUrl}/devices/center/{centerId}/device/{deviceNumber}/content", request);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error updating device contents: {ex.Message}");
+            return false;
+        }
+    }
+
+    // ============= 媒體 API =============
+
+    public async Task<List<MediaContent>> GetAllMediaAsync()
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.GetAsync($"{_apiBaseUrl}/media");
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<List<MediaContent>>() ?? new();
@@ -433,12 +629,12 @@ public class SignageApiClient
         }
     }
 
-    public async Task<MediaContent?> AddMediaAsync(string centerId, string title, string url, string mediaType, int duration)
+    public async Task<MediaContent?> AddMediaAsync(string title, string url, string mediaType, int duration)
     {
         try
         {
             AttachAuthHeader();
-            var request = new { centerId, title, url, mediaType, duration };
+            var request = new { title, url, mediaType, duration };
             var response = await _httpClient.PostAsJsonAsync($"{_apiBaseUrl}/media", request);
             if (response.IsSuccessStatusCode)
             {
@@ -450,6 +646,26 @@ public class SignageApiClient
         {
             Console.Error.WriteLine($"Error adding media: {ex.Message}");
             return null;
+        }
+    }
+
+    public async Task<List<MediaContent>> GetMediaByCenterAsync(string centerId)
+    {
+        return await GetAllMediaAsync();
+    }
+
+    public async Task<bool> DeleteMediaAsync(string mediaId)
+    {
+        try
+        {
+            AttachAuthHeader();
+            var response = await _httpClient.DeleteAsync($"{_apiBaseUrl}/media/{mediaId}");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error deleting media: {ex.Message}");
+            return false;
         }
     }
 
@@ -609,6 +825,45 @@ public class SignageApiClient
             return false;
         }
     }
+
+    private static string BuildAuditLogQueryString(AuditLogQuery? query)
+    {
+        var effective = query ?? new AuditLogQuery();
+        var parts = new List<string>();
+
+        if (effective.Limit > 0)
+            parts.Add($"limit={effective.Limit}");
+
+        if (effective.FromUtc.HasValue)
+            parts.Add($"fromUtc={Uri.EscapeDataString(effective.FromUtc.Value.ToUniversalTime().ToString("O"))}");
+
+        if (effective.ToUtc.HasValue)
+            parts.Add($"toUtc={Uri.EscapeDataString(effective.ToUtc.Value.ToUniversalTime().ToString("O"))}");
+
+        if (!string.IsNullOrWhiteSpace(effective.Username))
+            parts.Add($"username={Uri.EscapeDataString(effective.Username.Trim())}");
+
+        if (!string.IsNullOrWhiteSpace(effective.Action))
+            parts.Add($"action={Uri.EscapeDataString(effective.Action.Trim())}");
+
+        if (effective.Success.HasValue)
+            parts.Add($"success={effective.Success.Value.ToString().ToLowerInvariant()}");
+
+        return parts.Count == 0 ? string.Empty : $"?{string.Join("&", parts)}";
+    }
+
+    private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, string fallbackMessage)
+    {
+        try
+        {
+            var payload = await response.Content.ReadFromJsonAsync<ApiMessageResponse>();
+            return string.IsNullOrWhiteSpace(payload?.Message) ? fallbackMessage : payload.Message;
+        }
+        catch
+        {
+            return fallbackMessage;
+        }
+    }
 }
 
 public class CaptchaResponse
@@ -627,4 +882,19 @@ public class LoginResponse
     public string Role { get; set; } = "";
     public bool RequiresPasswordChange { get; set; }
     public DateTime PasswordExpiresAtUtc { get; set; }
+    // MFA 兩步驟回應
+    public bool RequiresMfa { get; set; }
+    public string UserId { get; set; } = "";
+}
+
+public class MfaSetupResponse
+{
+    public string Message { get; set; } = "";
+    public string OtpUri { get; set; } = "";
+    public string Secret { get; set; } = "";
+}
+
+public class ApiMessageResponse
+{
+    public string Message { get; set; } = "";
 }

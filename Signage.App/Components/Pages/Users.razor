@@ -16,7 +16,7 @@
     else
     {
         <MudPaper Class="pa-6 mb-4" Elevation="2">
-            <MudText Typo="Typo.h5" Class="mb-4">帳號建立與權限管理</MudText>
+            <MudText Typo="Typo.h5" Class="mb-4">建立新帳號</MudText>
             <MudGrid>
                 <MudItem xs="12" md="3">
                     <MudTextField @bind-Value="_username" Label="帳號" Variant="Variant.Outlined" />
@@ -35,33 +35,110 @@
                     <MudTextField @bind-Value="_password" Label="初始密碼" InputType="InputType.Password" Variant="Variant.Outlined" HelperText="至少 8 碼且含大小寫與特殊符號" />
                 </MudItem>
             </MudGrid>
-            <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateUserAsync">建立帳號</MudButton>
+            <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateUserAsync" Disabled="_isBusy">建立帳號</MudButton>
         </MudPaper>
 
-        <MudPaper Class="pa-6" Elevation="1">
+        <MudPaper Class="pa-6 mb-4" Elevation="1">
             <div class="d-flex align-center justify-space-between mb-3">
                 <MudText Typo="Typo.h6">帳號清單</MudText>
                 <MudButton Variant="Variant.Outlined" Color="Color.Info" OnClick="LoadUsersAsync">重新整理</MudButton>
             </div>
-            <MudTable Items="_users" Hover="true" Striped="true">
+            <MudTable Items="_users" Hover="true" Striped="true" Dense="true">
                 <HeaderContent>
                     <MudTh>帳號</MudTh>
                     <MudTh>顯示名稱</MudTh>
                     <MudTh>角色</MudTh>
-                    <MudTh>啟用</MudTh>
-                    <MudTh>密碼更新時間(UTC)</MudTh>
+                    <MudTh>狀態</MudTh>
+                    <MudTh>MFA</MudTh>
+                    <MudTh>鎖定至(UTC)</MudTh>
+                    <MudTh>密碼更新(UTC)</MudTh>
+                    <MudTh>操作</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="帳號">@context.Username</MudTd>
                     <MudTd DataLabel="顯示名稱">@context.DisplayName</MudTd>
-                    <MudTd DataLabel="角色">@context.Role</MudTd>
-                    <MudTd DataLabel="啟用">@(context.IsActive ? "是" : "否")</MudTd>
-                    <MudTd DataLabel="密碼更新時間">@context.PasswordChangedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                    <MudTd DataLabel="角色">
+                        <MudSelect T="string" Value="@context.Role" ValueChanged="@(r => ChangeRoleAsync(context.Username, r))"
+                                   Variant="Variant.Text" Dense="true">
+                            <MudSelectItem Value="@UserRoles.Admin">Admin</MudSelectItem>
+                            <MudSelectItem Value="@UserRoles.Operator">Operator</MudSelectItem>
+                            <MudSelectItem Value="@UserRoles.Viewer">Viewer</MudSelectItem>
+                        </MudSelect>
+                    </MudTd>
+                    <MudTd DataLabel="狀態">
+                        <MudChip T="string" Color="@(context.IsActive ? Color.Success : Color.Error)"
+                                 Text="@(context.IsActive ? "啟用" : "停用")" Size="Size.Small" />
+                    </MudTd>
+                    <MudTd DataLabel="MFA">
+                        <MudChip T="string" Color="@(context.IsMfaEnabled ? Color.Info : Color.Default)"
+                                 Text="@(context.IsMfaEnabled ? "已啟用" : "未啟用")" Size="Size.Small" />
+                    </MudTd>
+                    <MudTd DataLabel="鎖定至">
+                        @(context.LockoutUntilUtc.HasValue && context.LockoutUntilUtc.Value > DateTime.UtcNow
+                            ? context.LockoutUntilUtc.Value.ToString("HH:mm:ss")
+                            : "-")
+                    </MudTd>
+                    <MudTd DataLabel="密碼更新">@context.PasswordChangedAtUtc.ToString("yyyy-MM-dd")</MudTd>
+                    <MudTd DataLabel="操作">
+                        <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small">
+                            <MudButton Color="@(context.IsActive ? Color.Warning : Color.Success)"
+                                       OnClick="@(() => ToggleActiveAsync(context.Username))"
+                                       Disabled="_isBusy">
+                                @(context.IsActive ? "停用" : "啟用")
+                            </MudButton>
+                            <MudButton Color="Color.Secondary"
+                                       OnClick="@(() => OpenResetPasswordDialog(context.Username))"
+                                       Disabled="_isBusy">
+                                重設密碼
+                            </MudButton>
+                            @if (context.IsMfaEnabled)
+                            {
+                                <MudButton Color="Color.Error"
+                                           OnClick="@(() => DisableMfaAsync(context.Username))"
+                                           Disabled="_isBusy">
+                                    停用MFA
+                                </MudButton>
+                            }
+                        </MudButtonGroup>
+                    </MudTd>
                 </RowTemplate>
             </MudTable>
         </MudPaper>
+
+        @* 我的 MFA 設定 *@
+        <MudPaper Class="pa-6" Elevation="1">
+            <MudText Typo="Typo.h6" Class="mb-4">我的雙因素驗證（MFA）設定</MudText>
+            @if (!string.IsNullOrWhiteSpace(_mfaOtpUri))
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-3">
+                    請使用 Google Authenticator 或 Microsoft Authenticator 掃描下方金鑰，然後輸入驗證碼確認啟用。
+                </MudAlert>
+                <MudText Class="mb-2"><strong>Secret 金鑰：</strong> @_mfaSecret</MudText>
+                <MudTextField @bind-Value="_mfaConfirmCode" Label="輸入 Authenticator 顯示的 6 位數碼" Variant="Variant.Outlined" Class="mb-3" Style="max-width:300px" />
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ConfirmMfaAsync" Disabled="_isBusy">確認啟用</MudButton>
+                <MudButton Color="Color.Default" Variant="Variant.Outlined" OnClick="CancelMfaSetup" Class="ml-2">取消</MudButton>
+            }
+            else
+            {
+                <MudButton Color="Color.Info" Variant="Variant.Filled" OnClick="SetupMfaAsync" Disabled="_isBusy">建立我的 MFA 金鑰</MudButton>
+            }
+        </MudPaper>
     }
 </MudContainer>
+
+@* 重設密碼對話框 *@
+<MudDialog @bind-IsVisible="_showResetDialog">
+    <TitleContent>
+        <MudText Typo="Typo.h6">重設帳號密碼 - @_resetTargetUsername</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_resetNewPassword" Label="新密碼" InputType="InputType.Password" Variant="Variant.Outlined" HelperText="至少 8 碼且含大小寫與特殊符號" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showResetDialog = false)">取消</MudButton>
+        <MudButton Color="Color.Primary" OnClick="ConfirmResetPassword" Disabled="_isBusy">確認重設</MudButton>
+    </DialogActions>
+</MudDialog>
 
 @code {
     private List<UserAccount> _users = new();
@@ -69,6 +146,17 @@
     private string _displayName = "";
     private string _role = UserRoles.Viewer;
     private string _password = "";
+    private bool _isBusy;
+
+    // MFA setup
+    private string _mfaOtpUri = "";
+    private string _mfaSecret = "";
+    private string _mfaConfirmCode = "";
+
+    // Reset password dialog
+    private bool _showResetDialog;
+    private string _resetTargetUsername = "";
+    private string _resetNewPassword = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -91,18 +179,175 @@
             return;
         }
 
-        var result = await ApiClient.CreateUserAsync(_username, _displayName, _role, _password);
-        if (!result.success)
+        _isBusy = true;
+        try
         {
-            Snackbar.Add($"建立失敗: {result.message}", Severity.Error);
+            var result = await ApiClient.CreateUserAsync(_username, _displayName, _role, _password);
+            if (!result.success)
+            {
+                Snackbar.Add($"建立失敗: {result.message}", Severity.Error);
+                return;
+            }
+
+            Snackbar.Add("帳號建立成功", Severity.Success);
+            _username = "";
+            _displayName = "";
+            _password = "";
+            _role = UserRoles.Viewer;
+            await LoadUsersAsync();
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ToggleActiveAsync(string username)
+    {
+        _isBusy = true;
+        try
+        {
+            var result = await ApiClient.ToggleUserActiveAsync(username);
+            if (!result.success)
+                Snackbar.Add($"操作失敗: {result.message}", Severity.Error);
+            else
+            {
+                Snackbar.Add(result.message, Severity.Success);
+                await LoadUsersAsync();
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ChangeRoleAsync(string username, string newRole)
+    {
+        _isBusy = true;
+        try
+        {
+            var result = await ApiClient.UpdateUserRoleAsync(username, newRole);
+            if (!result.success)
+                Snackbar.Add($"更新失敗: {result.message}", Severity.Error);
+            else
+            {
+                Snackbar.Add(result.message, Severity.Success);
+                await LoadUsersAsync();
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void OpenResetPasswordDialog(string username)
+    {
+        _resetTargetUsername = username;
+        _resetNewPassword = "";
+        _showResetDialog = true;
+    }
+
+    private async Task ConfirmResetPassword()
+    {
+        if (string.IsNullOrWhiteSpace(_resetNewPassword))
+        {
+            Snackbar.Add("請輸入新密碼", Severity.Warning);
             return;
         }
 
-        Snackbar.Add("帳號建立成功", Severity.Success);
-        _username = "";
-        _displayName = "";
-        _password = "";
-        _role = UserRoles.Viewer;
-        await LoadUsersAsync();
+        _isBusy = true;
+        try
+        {
+            var result = await ApiClient.AdminResetPasswordAsync(_resetTargetUsername, _resetNewPassword);
+            if (!result.success)
+                Snackbar.Add($"重設失敗: {result.message}", Severity.Error);
+            else
+            {
+                Snackbar.Add(result.message, Severity.Success);
+                _showResetDialog = false;
+                await LoadUsersAsync();
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DisableMfaAsync(string username)
+    {
+        _isBusy = true;
+        try
+        {
+            var result = await ApiClient.DisableMfaAsync(username);
+            if (!result.success)
+                Snackbar.Add($"停用 MFA 失敗: {result.message}", Severity.Error);
+            else
+            {
+                Snackbar.Add(result.message, Severity.Success);
+                await LoadUsersAsync();
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task SetupMfaAsync()
+    {
+        _isBusy = true;
+        try
+        {
+            var result = await ApiClient.SetupMfaAsync();
+            if (!result.success)
+            {
+                Snackbar.Add($"建立 MFA 失敗: {result.message}", Severity.Error);
+                return;
+            }
+            _mfaOtpUri = result.otpUri ?? "";
+            _mfaSecret = result.secret ?? "";
+            _mfaConfirmCode = "";
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task ConfirmMfaAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_mfaConfirmCode) || _mfaConfirmCode.Length != 6)
+        {
+            Snackbar.Add("請輸入 6 位數驗證碼", Severity.Warning);
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            var result = await ApiClient.ConfirmMfaAsync(_mfaConfirmCode);
+            if (!result.success)
+                Snackbar.Add($"驗證失敗: {result.message}", Severity.Error);
+            else
+            {
+                Snackbar.Add("MFA 已啟用", Severity.Success);
+                CancelMfaSetup();
+                await LoadUsersAsync();
+            }
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private void CancelMfaSetup()
+    {
+        _mfaOtpUri = "";
+        _mfaSecret = "";
+        _mfaConfirmCode = "";
     }
 }

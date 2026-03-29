@@ -3,14 +3,16 @@
 @using MudBlazor.Services
 @inject NavigationManager NavigationManager
 @inject AuthSessionService AuthSession
+@inject ISnackbar Snackbar
 @rendermode InteractiveServer
+@implements IDisposable
 
 <MudThemeProvider />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<MudLayout>
+<MudLayout @onmousemove="OnUserActivity" @onkeydown="OnUserActivity" @onclick="OnUserActivity">
     <MudAppBar Elevation="1" Color="Color.Primary">
         <MudText Typo="Typo.h5" Class="mr-auto">
             <MudIcon Icon="@Icons.Material.Filled.Dashboard" Class="mr-2" />
@@ -38,9 +40,6 @@
 
     <MudMainContent>
         <MudContainer MaxWidth="MaxWidth.Large" Class="my-16 pt-16">
-            <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.Info" Class="mb-4">
-                <MudText>遊客中心清單已整合至「設備管理」頁，請至設備管理選擇中心後進行設備綁定與新增。</MudText>
-            </MudAlert>
             <CascadingValue Value="string.Empty">
                 @Body
             </CascadingValue>
@@ -49,9 +48,34 @@
 </MudLayout>
 
 @code {
+    protected override void OnInitialized()
+    {
+        AuthSession.OnIdleLogout += HandleIdleLogout;
+    }
+
+    private void OnUserActivity()
+    {
+        AuthSession.RecordActivity();
+    }
+
+    private void HandleIdleLogout()
+    {
+        InvokeAsync(async () =>
+        {
+            await AuthSession.LogoutAsync();
+            Snackbar.Add("閒置超過 15 分鐘，已自動登出", Severity.Warning);
+            NavigationManager.NavigateTo("/login", forceLoad: true);
+        });
+    }
+
     private async Task Logout()
     {
         await AuthSession.LogoutAsync();
         NavigationManager.NavigateTo("/login");
+    }
+
+    public void Dispose()
+    {
+        AuthSession.OnIdleLogout -= HandleIdleLogout;
     }
 }

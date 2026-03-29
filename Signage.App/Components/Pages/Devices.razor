@@ -21,6 +21,25 @@
             <MudPaper Class="pa-4 mb-4" Elevation="2">
                 <MudText Typo="Typo.h6" Class="mb-3">遊客中心清單</MudText>
 
+                <MudTextField @bind-Value="_newCenterName"
+                              Label="中心名稱"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Class="mb-2" />
+                <MudTextField @bind-Value="_newCenterLocation"
+                              Label="中心地點"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Class="mb-2" />
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Secondary"
+                           FullWidth="true"
+                           Class="mb-3"
+                           OnClick="CreateCenter"
+                           Disabled="@_isBusy">
+                    新建遊客中心
+                </MudButton>
+
                 @if (_centers.Count == 0)
                 {
                     <MudText Typo="Typo.caption">尚無遊客中心資料</MudText>
@@ -152,7 +171,13 @@
                                         <MudText Typo="Typo.body2">@BuildPlayUrl(node.DeviceSlug)</MudText>
                                     </MudPaper>
 
-                                    <div class="d-flex justify-end mt-3">
+                                    <div class="d-flex justify-end mt-3 gap-2 flex-wrap">
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Info"
+                                                   OnClick="@(() => ToggleDeviceContentEditor(node))"
+                                                   Disabled="@(_isBusy || string.IsNullOrWhiteSpace(node.AssignedPageId))">
+                                            內容編輯
+                                        </MudButton>
                                         <MudButton Variant="Variant.Filled"
                                                    Color="Color.Success"
                                                    OnClick="@(() => SaveDevice(node))"
@@ -160,6 +185,89 @@
                                             儲存設備設定
                                         </MudButton>
                                     </div>
+
+                                    @if (_editingDeviceNumber == node.DeviceNumber)
+                                    {
+                                        <MudDivider Class="my-3" />
+                                        <MudText Typo="Typo.subtitle1" Class="mb-2">設備內容客製化（@node.DeviceName）</MudText>
+                                        <MudText Typo="Typo.caption" Class="d-block mb-2">版型：@GetAssignedPageName(node.AssignedPageId)</MudText>
+
+                                        @foreach (var region in GetEditingRegions(node.DeviceNumber))
+                                        {
+                                            <MudPaper Class="pa-3 mb-2" Outlined="true">
+                                                <MudText Typo="Typo.subtitle2" Class="mb-2">@GetRegionDisplayName(region.SortOrder)</MudText>
+
+                                                <MudSelect T="RegionContentType"
+                                                           Label="區塊內容"
+                                                           Value="@region.ContentType"
+                                                           ValueChanged="@(value => region.ContentType = value)"
+                                                           Variant="Variant.Outlined"
+                                                           Margin="Margin.Dense"
+                                                           Class="mb-2">
+                                                    <MudSelectItem Value="@RegionContentType.Empty">空白</MudSelectItem>
+                                                    <MudSelectItem Value="@RegionContentType.Video">影片</MudSelectItem>
+                                                    <MudSelectItem Value="@RegionContentType.Image">圖片</MudSelectItem>
+                                                    <MudSelectItem Value="@RegionContentType.MarqueeText">文字</MudSelectItem>
+                                                    <MudSelectItem Value="@RegionContentType.Clock">時間</MudSelectItem>
+                                                </MudSelect>
+
+                                                @if (region.ContentType == RegionContentType.MarqueeText)
+                                                {
+                                                    <MudTextField @bind-Value="region.TextContent"
+                                                                  Label="文字內容"
+                                                                  Variant="Variant.Filled"
+                                                                  Lines="2"
+                                                                  Margin="Margin.Dense" />
+                                                }
+                                                else if (region.ContentType == RegionContentType.Video || region.ContentType == RegionContentType.Image)
+                                                {
+                                                    <MudSelect T="string"
+                                                               Label="從媒體庫選擇素材"
+                                                               @bind-Value="_selectedMediaForAdd"
+                                                               Variant="Variant.Outlined"
+                                                               Margin="Margin.Dense"
+                                                               Class="mb-2">
+                                                        <MudSelectItem Value="@string.Empty">請選擇</MudSelectItem>
+                                                        @foreach (var media in GetMediaOptions(region.ContentType))
+                                                        {
+                                                            <MudSelectItem Value="@media.Id">@media.Title</MudSelectItem>
+                                                        }
+                                                    </MudSelect>
+
+                                                    <MudButton Variant="Variant.Outlined"
+                                                               Color="Color.Primary"
+                                                               Size="Size.Small"
+                                                               OnClick="@(() => AddMediaToRegion(region))"
+                                                               Disabled="@string.IsNullOrWhiteSpace(_selectedMediaForAdd)">
+                                                        新增到輪播清單
+                                                    </MudButton>
+
+                                                    @if (region.MediaUrls.Any())
+                                                    {
+                                                        <MudList T="string" Dense="true" Class="mt-2">
+                                                            @for (var index = 0; index < region.MediaUrls.Count; index++)
+                                                            {
+                                                                var removeIndex = index;
+                                                                <MudListItem T="string">
+                                                                    <MudText Typo="Typo.caption" Class="mr-2">@(removeIndex + 1).</MudText>
+                                                                    <MudText Typo="Typo.caption" Class="flex-grow-1">@GetMediaDisplayName(region, removeIndex)</MudText>
+                                                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                                                   Size="Size.Small"
+                                                                                   Color="Color.Error"
+                                                                                   OnClick="@(() => RemoveMediaFromRegion(region, removeIndex))" />
+                                                                </MudListItem>
+                                                            }
+                                                        </MudList>
+                                                    }
+                                                }
+                                            </MudPaper>
+                                        }
+
+                                        <div class="d-flex justify-end gap-2 mt-2">
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="CloseDeviceContentEditor" Disabled="@_isBusy">取消</MudButton>
+                                            <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="@(() => SaveDeviceContent(node))" Disabled="@_isBusy">儲存內容</MudButton>
+                                        </div>
+                                    }
                                 </MudPaper>
                             </MudItem>
                         }
@@ -198,6 +306,12 @@
     private string _busyMessage = "";
     private string _newDeviceName = "";
     private string _newDeviceIp = "";
+    private string _newCenterName = "";
+    private string _newCenterLocation = "";
+    private List<MediaContent> _mediaLibrary = new();
+    private int? _editingDeviceNumber;
+    private string _selectedMediaForAdd = "";
+    private Dictionary<int, List<DeviceRegionContent>> _deviceContentsDraft = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -227,6 +341,7 @@
 
             _deviceNodes = await ApiClient.GetDeviceHierarchyByCenterAsync(_currentCenterId);
             _pages = await ApiClient.GetAllSignagePagesAsync();
+            _mediaLibrary = await ApiClient.GetAllMediaAsync();
         }, "遊客中心資料已載入");
     }
 
@@ -240,6 +355,8 @@
         {
             _deviceNodes = await ApiClient.GetDeviceHierarchyByCenterAsync(_currentCenterId);
             _pages = await ApiClient.GetAllSignagePagesAsync();
+            _mediaLibrary = await ApiClient.GetAllMediaAsync();
+            _editingDeviceNumber = null;
         }, $"已切換至 {center.Name}");
     }
 
@@ -264,6 +381,28 @@
             _newDeviceIp = "";
             _deviceNodes = await ApiClient.GetDeviceHierarchyByCenterAsync(_currentCenterId);
         }, "設備新增成功");
+    }
+
+    private async Task CreateCenter()
+    {
+        if (string.IsNullOrWhiteSpace(_newCenterName))
+        {
+            Snackbar.Add("請輸入遊客中心名稱", Severity.Warning);
+            return;
+        }
+
+        await RunBusyActionAsync("建立遊客中心中...", async () =>
+        {
+            var center = await ApiClient.CreateVisitorCenterAsync(_newCenterName, _newCenterLocation);
+            if (center == null)
+                throw new InvalidOperationException("新建遊客中心失敗");
+
+            _newCenterName = "";
+            _newCenterLocation = "";
+
+            await LoadCentersAsync();
+            await SelectCenter(center);
+        }, "遊客中心已建立");
     }
 
     private async Task SaveDevice(DeviceHierarchyNode node)
@@ -299,6 +438,137 @@
     {
         var normalized = string.IsNullOrWhiteSpace(slug) ? "device" : slug.Trim();
         return $"{Nav.BaseUri}play/{normalized}";
+    }
+
+    private async Task ToggleDeviceContentEditor(DeviceHierarchyNode node)
+    {
+        if (string.IsNullOrWhiteSpace(node.AssignedPageId))
+        {
+            Snackbar.Add("請先為此設備選擇版型後再編輯內容", Severity.Warning);
+            return;
+        }
+
+        if (_editingDeviceNumber == node.DeviceNumber)
+        {
+            _editingDeviceNumber = null;
+            return;
+        }
+
+        await RunBusyActionAsync($"載入設備 {node.DeviceNumber} 內容中...", async () =>
+        {
+            var page = await ApiClient.GetSignagePageAsync(node.AssignedPageId);
+            if (page == null)
+                throw new InvalidOperationException("找不到版型");
+
+            var saved = await ApiClient.GetDeviceRegionContentsAsync(_currentCenterId, node.DeviceNumber);
+            var drafts = new List<DeviceRegionContent>();
+
+            for (var index = 0; index < page.ZoneCount; index++)
+            {
+                var existing = saved.FirstOrDefault(item => item.SortOrder == index);
+                drafts.Add(new DeviceRegionContent
+                {
+                    SortOrder = index,
+                    ContentType = existing?.ContentType ?? RegionContentType.Empty,
+                    TextContent = existing?.TextContent ?? "",
+                    MediaIds = existing?.MediaIds?.ToList() ?? new List<string>(),
+                    MediaUrls = existing?.MediaUrls?.ToList() ?? new List<string>()
+                });
+            }
+
+            _deviceContentsDraft[node.DeviceNumber] = drafts;
+            _selectedMediaForAdd = "";
+            _editingDeviceNumber = node.DeviceNumber;
+        });
+    }
+
+    private void CloseDeviceContentEditor()
+    {
+        _editingDeviceNumber = null;
+        _selectedMediaForAdd = "";
+    }
+
+    private List<DeviceRegionContent> GetEditingRegions(int deviceNumber)
+    {
+        if (_deviceContentsDraft.TryGetValue(deviceNumber, out var regions))
+            return regions;
+
+        return new List<DeviceRegionContent>();
+    }
+
+    private IEnumerable<MediaContent> GetMediaOptions(RegionContentType contentType)
+    {
+        var mediaType = contentType == RegionContentType.Video ? "Video" : "Image";
+        return _mediaLibrary.Where(item => item.MediaType == mediaType).OrderBy(item => item.Title);
+    }
+
+    private void AddMediaToRegion(DeviceRegionContent region)
+    {
+        var media = _mediaLibrary.FirstOrDefault(item => item.Id == _selectedMediaForAdd);
+        if (media == null)
+            return;
+
+        if (!region.MediaIds.Contains(media.Id, StringComparer.OrdinalIgnoreCase))
+            region.MediaIds.Add(media.Id);
+
+        if (!region.MediaUrls.Contains(media.Url, StringComparer.OrdinalIgnoreCase))
+            region.MediaUrls.Add(media.Url);
+
+        _selectedMediaForAdd = "";
+    }
+
+    private void RemoveMediaFromRegion(DeviceRegionContent region, int index)
+    {
+        if (index < 0 || index >= region.MediaUrls.Count)
+            return;
+
+        region.MediaUrls.RemoveAt(index);
+        if (index < region.MediaIds.Count)
+            region.MediaIds.RemoveAt(index);
+    }
+
+    private string GetMediaDisplayName(DeviceRegionContent region, int index)
+    {
+        var mediaId = region.MediaIds.ElementAtOrDefault(index);
+        if (!string.IsNullOrWhiteSpace(mediaId))
+        {
+            var media = _mediaLibrary.FirstOrDefault(item => item.Id == mediaId);
+            if (media != null)
+                return media.Title;
+        }
+
+        return region.MediaUrls.ElementAtOrDefault(index) ?? "未命名素材";
+    }
+
+    private string GetAssignedPageName(string pageId)
+    {
+        return _pages.FirstOrDefault(item => item.Id == pageId)?.Name ?? "未套用";
+    }
+
+    private static string GetRegionDisplayName(int sortOrder)
+    {
+        return sortOrder switch
+        {
+            0 => "上區塊",
+            1 => "中區塊",
+            _ => "下區塊"
+        };
+    }
+
+    private async Task SaveDeviceContent(DeviceHierarchyNode node)
+    {
+        if (!_deviceContentsDraft.TryGetValue(node.DeviceNumber, out var regionContents))
+            return;
+
+        await RunBusyActionAsync($"儲存設備 {node.DeviceNumber} 內容中...", async () =>
+        {
+            var ok = await ApiClient.UpdateDeviceRegionContentsAsync(_currentCenterId, node.DeviceNumber, regionContents);
+            if (!ok)
+                throw new InvalidOperationException("儲存設備內容失敗");
+
+            _editingDeviceNumber = null;
+            Snackbar.Add("設備內容已套用，播放端將依設備客製化內容顯示", Severity.Success);
+        });
     }
 
     private async Task RunBusyActionAsync(string busyMessage, Func<Task> action, string? successMessage = null)

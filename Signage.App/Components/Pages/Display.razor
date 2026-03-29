@@ -1,24 +1,18 @@
 @page "/display"
 @page "/display/{deviceId}"
 @page "/play/{deviceSlug}"
+@layout Layout.LoginLayout
 @using Signage.Common
 @using Signage.App.Services
 @using MudBlazor
 @inject SignageApiClient ApiClient
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 @implements IDisposable
 
-<div class="display-page">
-    <MudAppBar Style="position: absolute; top: 0; left: 0; right: 0; z-index: 1000;" Elevation="2">
-        <MudText Typo="Typo.h6" Class="mr-4">
-            <MudIcon Icon="@Icons.Material.Filled.Tv" Class="mr-2" />
-            電子看板播放端
-        </MudText>
-        <MudChip T="string" Icon="@Icons.Material.Filled.LocationOn" Text="@GetCenterLabel()" Color="Color.Info" Size="Size.Small" Class="mr-2" />
-        <MudSpacer />
-        <MudChip T="string" Icon="@Icons.Material.Filled.Info" Text="@GetStatusText()" Color="Color.Info" Size="Size.Small" />
-    </MudAppBar>
+<script type="module" src="@Assets["Components/Pages/Display.razor.js"]"></script>
 
+<div class="display-page">
     <div class="display-container">
         @if (_isLoading)
         {
@@ -31,15 +25,42 @@
         {
             <div class="playback-stage @GetStageClass(_currentLayout.ScreenOrientation)">
                 <div class="playback-canvas @GetCanvasClass(_currentLayout.ScreenOrientation)">
+                    <div class="display-toolbar-drawer" tabindex="0" aria-label="聲音控制抽屜">
+                        <div class="display-toolbar-handle" aria-hidden="true">
+                            <MudIcon Icon="@Icons.Material.Filled.ChevronLeft" />
+                        </div>
+
+                        <div class="display-toolbar-panel">
+                            <button type="button" class="display-audio-button" @onclick="ToggleMuteAsync" aria-label="切換聲音">
+                                <MudIcon Icon="@(_isMuted ? Icons.Material.Filled.VolumeOff : Icons.Material.Filled.VolumeUp)" />
+                            </button>
+                            <input type="range"
+                                   class="display-volume-slider"
+                                   min="0"
+                                   max="100"
+                                   step="1"
+                                   value="@_volumePercent"
+                                   @oninput="OnVolumeInput" />
+                            <span class="display-volume-label">@_volumePercent%</span>
+                        </div>
+                    </div>
+
                     @foreach (var region in GetActiveRegions(_currentLayout))
                     {
                         <div class="playback-region" style="@GetRegionStyle(region)">
                             @switch (region.ContentType)
                             {
                                 case RegionContentType.Video:
-                                    if (!string.IsNullOrWhiteSpace(region.MediaUrl))
+                                    if (!string.IsNullOrWhiteSpace(GetCurrentMediaUrl(region)))
                                     {
-                                        <video class="region-media" autoplay muted loop playsinline src="@region.MediaUrl"></video>
+                                        <video @key="@GetRegionMediaKey(region)"
+                                                 class="region-media signage-video"
+                                               autoplay
+                                                                                             muted="@_isMuted"
+                                               playsinline
+                                                 preload="auto"
+                                               loop="@(GetRegionMediaUrls(region).Count <= 1)"
+                                               src="@GetCurrentMediaUrl(region)"></video>
                                     }
                                     else
                                     {
@@ -47,9 +68,9 @@
                                     }
                                     break;
                                 case RegionContentType.Image:
-                                    if (!string.IsNullOrWhiteSpace(region.MediaUrl))
+                                    if (!string.IsNullOrWhiteSpace(GetCurrentMediaUrl(region)))
                                     {
-                                        <img class="region-media" src="@region.MediaUrl" alt="region" />
+                                        <img @key="@GetRegionMediaKey(region)" class="region-media" src="@GetCurrentMediaUrl(region)" alt="region" />
                                     }
                                     else
                                     {
@@ -81,20 +102,6 @@
             </div>
         }
     </div>
-
-    <div class="status-bar">
-        <span>方向：@GetOrientationLabel(_currentLayout?.ScreenOrientation ?? ScreenOrientation.Landscape16x9) | 版型：@(_currentLayout?.Name ?? "未啟用") | 區塊：@(_currentLayout?.ZoneCount ?? 0) | @_now.ToString("HH:mm:ss")</span>
-        <span class="connection-status">
-            @if (_isConnected)
-            {
-                <span style="color: #22c55e;">◉ 已連接</span>
-            }
-            else
-            {
-                <span style="color: #ef4444;">◉ 離線（本地模式）</span>
-            }
-        </span>
-    </div>
 </div>
 
 <style>
@@ -105,20 +112,108 @@
         overflow: hidden;
     }
 
-    .display-container {
+    .display-toolbar-drawer {
+        --drawer-control-size: 2.2rem;
+        --drawer-radius: 0.8rem;
         position: absolute;
-        top: 64px;
-        left: 0;
-        right: 0;
-        bottom: 40px;
+        top: 0.85rem;
+        right: 0.85rem;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        transform: translateX(calc(100% - var(--drawer-control-size)));
+        transition: transform 0.25s ease;
+    }
+
+    .display-toolbar-drawer:hover,
+    .display-toolbar-drawer:focus,
+    .display-toolbar-drawer:focus-within {
+        transform: translateX(0);
+    }
+
+    .display-toolbar-handle {
+        flex: 0 0 var(--drawer-control-size);
+        width: var(--drawer-control-size);
+        height: var(--drawer-control-size);
+        box-sizing: border-box;
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 1.5rem;
+        border-radius: var(--drawer-radius) 0 0 var(--drawer-radius);
+        background: rgba(15, 23, 42, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-right: none;
+        color: #e2e8f0;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .display-toolbar-panel {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        height: var(--drawer-control-size);
+        padding: 0 0.55rem;
+        box-sizing: border-box;
+        border-radius: 0 var(--drawer-radius) var(--drawer-radius) 0;
+        background: rgba(15, 23, 42, 0.58);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-left: none;
+        backdrop-filter: blur(10px);
+        color: #e2e8f0;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+    }
+
+    .display-audio-button {
+        flex: 0 0 var(--drawer-control-size);
+        width: var(--drawer-control-size);
+        height: var(--drawer-control-size);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #f8fafc;
+        padding: 0;
+        cursor: pointer;
+        font: inherit;
+    }
+
+    .display-audio-button:hover {
+        background: rgba(255, 255, 255, 0.14);
+    }
+
+    .display-toolbar-handle .mud-icon-root,
+    .display-audio-button .mud-icon-root {
+        width: 1.2rem;
+        height: 1.2rem;
+        font-size: 1.2rem;
+    }
+
+    .display-volume-slider {
+        width: 7.2rem;
+        accent-color: #38bdf8;
+        cursor: pointer;
+    }
+
+    .display-volume-label {
+        min-width: 3rem;
+        text-align: right;
+        font-size: 0.88rem;
+        color: #cbd5e1;
+    }
+
+    .display-container {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         background:
-            radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 30%),
-            radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.12), transparent 32%),
-            linear-gradient(180deg, #0f172a 0%, #020617 100%);
+            radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent 28%),
+            radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.08), transparent 28%),
+            linear-gradient(180deg, #020617 0%, #020617 100%);
     }
 
     .playback-stage {
@@ -130,22 +225,22 @@
     }
 
     .playback-canvas {
+        position: relative;
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        border-radius: 28px;
-        border: 6px solid rgba(255, 255, 255, 0.12);
-        box-shadow: 0 32px 90px rgba(0, 0, 0, 0.45);
         background: #111827;
     }
 
     .playback-canvas.canvas-landscape {
-        width: min(100%, 84rem);
+        width: min(100vw, calc(100vh * 16 / 9));
+        height: min(100vh, calc(100vw * 9 / 16));
         aspect-ratio: 16 / 9;
     }
 
     .playback-canvas.canvas-portrait {
-        height: min(100%, 52rem);
+        width: min(100vw, calc(100vh * 9 / 16));
+        height: min(100vh, calc(100vw * 16 / 9));
         aspect-ratio: 9 / 16;
     }
 
@@ -233,32 +328,25 @@
         font-size: 1.1rem;
     }
 
-    .status-bar {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 40px;
-        background-color: rgba(15, 23, 42, 0.92);
-        border-top: 1px solid rgba(255, 255, 255, 0.12);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 20px;
-        color: #cbd5e1;
-        font-size: 12px;
-        z-index: 100;
-    }
-
-    .connection-status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
     @@keyframes marquee-scroll {
         0%   { transform: translateX(100vw); }
         100% { transform: translateX(-200%); }
+    }
+
+    @@media (max-width: 768px) {
+        .display-toolbar-drawer {
+            --drawer-control-size: 1.9rem;
+            top: 0.55rem;
+            right: 0.55rem;
+        }
+
+        .display-toolbar-drawer {
+            transform: translateX(calc(100% - var(--drawer-control-size)));
+        }
+
+        .display-volume-slider {
+            width: 5.8rem;
+        }
     }
 </style>
 
@@ -284,12 +372,15 @@
 
     private string _selectedCenterName = "";
     private SignagePage? _currentLayout;
-    private bool _isConnected = true;
     private bool _isLoading;
+    private bool _isMuted = true;
+    private int _volumePercent = 80;
     private DateTime _now = DateTime.Now;
     private System.Threading.Timer? _clockTimer;
     private System.Threading.Timer? _refreshTimer;
     private bool _isRefreshing;
+    private System.Threading.Timer? _rotationTimer;
+    private readonly Dictionary<string, int> _rotationIndices = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -305,6 +396,12 @@
             await RefreshLayoutSilentlyAsync();
         }), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
 
+        _rotationTimer = new System.Threading.Timer(_ => InvokeAsync(() =>
+        {
+            AdvanceMediaRotation();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(8));
+
         await LoadActiveLayoutAsync();
     }
 
@@ -316,22 +413,74 @@
         await LoadActiveLayoutAsync();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_currentLayout == null)
+            return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("signageDisplay.ensureVideosPlaying", _isMuted, _volumePercent / 100d);
+        }
+        catch
+        {
+            // Ignore transient JS/runtime errors during display refresh.
+        }
+    }
+
+    private async Task ToggleMuteAsync()
+    {
+        _isMuted = !_isMuted;
+
+        if (!_isMuted && _volumePercent == 0)
+            _volumePercent = 80;
+
+        try
+        {
+            await JS.InvokeVoidAsync("signageDisplay.ensureVideosPlaying", _isMuted, _volumePercent / 100d);
+        }
+        catch
+        {
+            // Ignore transient JS/runtime errors during user interaction.
+        }
+    }
+
+    private async Task OnVolumeInput(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var value))
+            return;
+
+        _volumePercent = Math.Clamp(value, 0, 100);
+        _isMuted = _volumePercent == 0;
+
+        try
+        {
+            await JS.InvokeVoidAsync("signageDisplay.ensureVideosPlaying", _isMuted, _volumePercent / 100d);
+        }
+        catch
+        {
+            // Ignore transient JS/runtime errors during user interaction.
+        }
+    }
+
     private async Task LoadActiveLayoutAsync(bool showLoading = true)
     {
         if (showLoading)
             _isLoading = true;
 
-        _currentLayout = null;
+        SignagePage? resolvedLayout = null;
 
         try
         {
             // 優先級 0: /play/{deviceSlug}
             if (!string.IsNullOrWhiteSpace(DeviceSlug))
             {
-                _currentLayout = await ApiClient.GetPageByDeviceSlugAsync(DeviceSlug);
-                if (_currentLayout != null)
+                resolvedLayout = await ApiClient.GetPageByDeviceSlugAsync(DeviceSlug);
+                if (resolvedLayout != null)
                 {
-                    EnsureRegions(_currentLayout);
+                    EnsureRegions(resolvedLayout);
+                    _currentLayout = resolvedLayout;
+                    SyncRotationKeys(resolvedLayout);
                     return;
                 }
             }
@@ -339,10 +488,12 @@
             // 優先級 1: 如果有 DeviceId，直接查詢該設備的配置
             if (!string.IsNullOrWhiteSpace(DeviceId))
             {
-                _currentLayout = await ApiClient.GetPageByDeviceAsync(DeviceId);
-                if (_currentLayout != null)
+                resolvedLayout = await ApiClient.GetPageByDeviceAsync(DeviceId);
+                if (resolvedLayout != null)
                 {
-                    EnsureRegions(_currentLayout);
+                    EnsureRegions(resolvedLayout);
+                    _currentLayout = resolvedLayout;
+                    SyncRotationKeys(resolvedLayout);
                     return;
                 }
             }
@@ -350,10 +501,12 @@
             // 優先級 2: 如果有 CenterId + DeviceNumber，查詢該設備
             if (!string.IsNullOrWhiteSpace(CenterId) && DeviceNumber.HasValue && DeviceNumber > 0)
             {
-                _currentLayout = await ApiClient.GetPageByDeviceNumberAsync(CenterId, DeviceNumber.Value);
-                if (_currentLayout != null)
+                resolvedLayout = await ApiClient.GetPageByDeviceNumberAsync(CenterId, DeviceNumber.Value);
+                if (resolvedLayout != null)
                 {
-                    EnsureRegions(_currentLayout);
+                    EnsureRegions(resolvedLayout);
+                    _currentLayout = resolvedLayout;
+                    SyncRotationKeys(resolvedLayout);
                     return;
                 }
             }
@@ -361,10 +514,12 @@
             // 優先級 3: 如果有 CenterId，取該中心的啟用版型
             if (!string.IsNullOrWhiteSpace(CenterId))
             {
-                _currentLayout = await ApiClient.GetActivePageByCenterAsync(CenterId);
-                if (_currentLayout != null)
+                resolvedLayout = await ApiClient.GetActivePageByCenterAsync(CenterId);
+                if (resolvedLayout != null)
                 {
-                    EnsureRegions(_currentLayout);
+                    EnsureRegions(resolvedLayout);
+                    _currentLayout = resolvedLayout;
+                    SyncRotationKeys(resolvedLayout);
                     return;
                 }
             }
@@ -387,19 +542,23 @@
             var activeDevice = center.Devices?.FirstOrDefault(d => d.IsActive && !string.IsNullOrWhiteSpace(d.AssignedPageId));
             if (activeDevice != null)
             {
-                _currentLayout = await ApiClient.GetSignagePageAsync(activeDevice.AssignedPageId);
-                if (_currentLayout != null)
+                resolvedLayout = await ApiClient.GetSignagePageAsync(activeDevice.AssignedPageId);
+                if (resolvedLayout != null)
                 {
-                    EnsureRegions(_currentLayout);
+                    EnsureRegions(resolvedLayout);
+                    _currentLayout = resolvedLayout;
+                    SyncRotationKeys(resolvedLayout);
                     return;
                 }
             }
 
             // 優先級 4b: 取該中心整體的啟用版型（向後相容）
-            _currentLayout = await ApiClient.GetActivePageByCenterAsync(center.Id);
-            if (_currentLayout != null)
+            resolvedLayout = await ApiClient.GetActivePageByCenterAsync(center.Id);
+            if (resolvedLayout != null)
             {
-                EnsureRegions(_currentLayout);
+                EnsureRegions(resolvedLayout);
+                _currentLayout = resolvedLayout;
+                SyncRotationKeys(resolvedLayout);
                 return;
             }
 
@@ -410,7 +569,12 @@
             {
                 EnsureRegions(fallback);
                 _currentLayout = fallback;
+                SyncRotationKeys(fallback);
+                return;
             }
+
+            if (showLoading)
+                _currentLayout = null;
         }
         finally
         {
@@ -450,6 +614,78 @@
                 })
                 .ToList();
         }
+
+        foreach (var region in page.Regions)
+        {
+            region.MediaUrls ??= new List<string>();
+            region.MediaIds ??= new List<string>();
+
+            if (region.MediaUrls.Count == 0 && !string.IsNullOrWhiteSpace(region.MediaUrl))
+                region.MediaUrls.Add(region.MediaUrl);
+
+            if (region.MediaIds.Count == 0 && !string.IsNullOrWhiteSpace(region.MediaId))
+                region.MediaIds.Add(region.MediaId);
+
+            region.MediaUrl = region.MediaUrls.FirstOrDefault() ?? region.MediaUrl;
+            region.MediaId = region.MediaIds.FirstOrDefault() ?? region.MediaId;
+        }
+    }
+
+    private void AdvanceMediaRotation()
+    {
+        if (_currentLayout == null)
+            return;
+
+        foreach (var region in GetActiveRegions(_currentLayout))
+        {
+            var urls = GetRegionMediaUrls(region);
+            if (urls.Count <= 1)
+                continue;
+
+            var key = string.IsNullOrWhiteSpace(region.Id) ? $"region-{region.SortOrder}" : region.Id;
+            var currentIndex = _rotationIndices.TryGetValue(key, out var value) ? value : 0;
+            _rotationIndices[key] = (currentIndex + 1) % urls.Count;
+        }
+    }
+
+    private void SyncRotationKeys(SignagePage page)
+    {
+        _rotationIndices.Clear();
+        foreach (var region in GetActiveRegions(page))
+        {
+            var key = string.IsNullOrWhiteSpace(region.Id) ? $"region-{region.SortOrder}" : region.Id;
+            _rotationIndices[key] = 0;
+        }
+    }
+
+    private List<string> GetRegionMediaUrls(SignageRegion region)
+    {
+        region.MediaUrls ??= new List<string>();
+
+        if (region.MediaUrls.Count == 0 && !string.IsNullOrWhiteSpace(region.MediaUrl))
+            region.MediaUrls.Add(region.MediaUrl);
+
+        return region.MediaUrls;
+    }
+
+    private string GetCurrentMediaUrl(SignageRegion region)
+    {
+        var urls = GetRegionMediaUrls(region);
+        if (urls.Count == 0)
+            return region.MediaUrl;
+
+        var key = string.IsNullOrWhiteSpace(region.Id) ? $"region-{region.SortOrder}" : region.Id;
+        var index = _rotationIndices.TryGetValue(key, out var value) ? value : 0;
+
+        return urls[index % urls.Count];
+    }
+
+    private string GetRegionMediaKey(SignageRegion region)
+    {
+        var key = string.IsNullOrWhiteSpace(region.Id) ? $"region-{region.SortOrder}" : region.Id;
+        var currentUrl = GetCurrentMediaUrl(region);
+        var index = _rotationIndices.TryGetValue(key, out var value) ? value : 0;
+        return $"{key}-{index}-{currentUrl}";
     }
 
     private static IEnumerable<SignageRegion> GetActiveRegions(SignagePage page)
@@ -464,15 +700,6 @@
         return $"height: {Math.Max(region.HeightPercent, 0):0.##}%;";
     }
 
-    private string GetStatusText() =>
-        $"中心: {(_selectedCenterName == "" ? "未選擇" : _selectedCenterName)}";
-
-    private string GetCenterLabel() =>
-        string.IsNullOrWhiteSpace(_selectedCenterName) ? "未選擇中心" : _selectedCenterName;
-
-    private static string GetOrientationLabel(ScreenOrientation o) =>
-        o == ScreenOrientation.Portrait9x16 ? "9:16 直式" : "16:9 橫式";
-
     private static string GetStageClass(ScreenOrientation o) =>
         o == ScreenOrientation.Portrait9x16 ? "stage-portrait" : "stage-landscape";
 
@@ -483,5 +710,6 @@
     {
         _clockTimer?.Dispose();
         _refreshTimer?.Dispose();
+        _rotationTimer?.Dispose();
     }
 }

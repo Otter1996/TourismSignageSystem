@@ -3,10 +3,17 @@ using Microsoft.JSInterop;
 
 namespace Signage.App.Services;
 
-public class AuthSessionService
+public class AuthSessionService : IDisposable
 {
     private const string StorageKey = "signage.auth.session";
+    private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(15);
+
     private readonly IJSRuntime _jsRuntime;
+    private System.Threading.Timer? _idleTimer;
+    private DateTime _lastActivityUtc = DateTime.UtcNow;
+
+    public event Action? OnIdleLogout;
+    public event Action? OnSessionChanged;
 
     public AuthSessionService(IJSRuntime jsRuntime)
     {
@@ -60,11 +67,23 @@ public class AuthSessionService
         });
 
         IsInitialized = true;
+        _lastActivityUtc = DateTime.UtcNow;
+        StartIdleTimer();
         await PersistAsync();
+    }
+
+    /// <summary>
+    /// 使用者有任何互動時呼叫此方法以重置閒置計時
+    /// </summary>
+    public void RecordActivity()
+    {
+        if (!IsAuthenticated) return;
+        _lastActivityUtc = DateTime.UtcNow;
     }
 
     public async Task LogoutAsync()
     {
+        StopIdleTimer();
         ClearSession();
         IsInitialized = true;
 
@@ -75,6 +94,33 @@ public class AuthSessionService
         catch
         {
             // Ignore browser storage failures during logout.
+        }
+        OnSessionChanged?.Invoke();
+    }
+
+    private void StartIdleTimer()
+    {
+        StopIdleTimer();
+        // 每分鐘檢查一次閒置狀態
+        _idleTimer = new System.Threading.Timer(CheckIdle, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
+    private void StopIdleTimer()
+    {
+        _idleTimer?.Dispose();
+        _idleTimer = null;
+    }
+
+    private void CheckIdle(object? _)
+    {
+        if (!IsAuthenticated) return;
+
+        if (DateTime.UtcNow - _lastActivityUtc >= IdleTimeout)
+        {
+            StopIdleTimer();
+            ClearSession();
+            // 清除 sessionStorage（注意：Timer callback 在非 Blazor 執行緒，透過事件通知 UI 執行）
+            OnIdleLogout?.Invoke();
         }
     }
 
@@ -108,6 +154,11 @@ public class AuthSessionService
         DisplayName = "";
         Role = "";
         RequiresPasswordChange = false;
+    }
+
+    public void Dispose()
+    {
+        StopIdleTimer();
     }
 
     private sealed class AuthSessionSnapshot

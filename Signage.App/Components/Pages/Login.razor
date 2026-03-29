@@ -11,43 +11,62 @@
 
 <MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
     <MudPaper Class="pa-8" Elevation="6">
-        <MudText Typo="Typo.h5" Class="mb-4">系統登入</MudText>
 
-        <MudTextField @bind-Value="_username" Label="帳號" Variant="Variant.Outlined" Class="mb-3" />
-        <MudTextField @bind-Value="_password" Label="密碼" InputType="InputType.Password" Variant="Variant.Outlined" Class="mb-3" />
-
-        @if (!string.IsNullOrWhiteSpace(_captchaImageBase64))
+        @if (!_requiresMfa)
         {
-            <div class="mb-3">
-                <img src="@($"data:image/svg+xml;base64,{_captchaImageBase64}")" alt="captcha" style="height:60px; border: 1px solid #ccc;" />
-                <MudButton Variant="Variant.Text" Color="Color.Info" OnClick="LoadCaptchaAsync">重新整理驗證碼</MudButton>
-            </div>
+            <MudText Typo="Typo.h5" Class="mb-4">系統登入</MudText>
+
+            <MudTextField @bind-Value="_username" Label="帳號" Variant="Variant.Outlined" Class="mb-3" />
+            <MudTextField @bind-Value="_password" Label="密碼" InputType="InputType.Password" Variant="Variant.Outlined" Class="mb-3" />
+
+            @if (!string.IsNullOrWhiteSpace(_captchaImageBase64))
+            {
+                <div class="mb-3">
+                    <img src="@($"data:image/svg+xml;base64,{_captchaImageBase64}")" alt="captcha" style="height:60px; border: 1px solid #ccc;" />
+                    <MudButton Variant="Variant.Text" Color="Color.Info" OnClick="LoadCaptchaAsync">重新整理驗證碼</MudButton>
+                </div>
+            }
+
+            <MudTextField @bind-Value="_captchaCode" Label="圖形驗證碼" Variant="Variant.Outlined" Class="mb-4" />
+            <MudText Typo="Typo.caption" Class="mb-4">請輸入圖片中的 5 碼英數字，不能任意填寫。</MudText>
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="LoginAsync" Disabled="@_isBusy">登入</MudButton>
+
+            @if (AuthSession.RequiresPasswordChange)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-4">密碼已超過 180 天，請先更新密碼。</MudAlert>
+            }
+
+            <MudDivider Class="my-4" />
+            <MudText Typo="Typo.caption">預設管理員帳號：admin / Admin@123</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.h5" Class="mb-2">雙因素驗證</MudText>
+            <MudText Typo="Typo.body2" Class="mb-4" Color="Color.Secondary">請開啟 Authenticator App，輸入目前顯示的 6 位數驗證碼。</MudText>
+
+            <MudTextField @bind-Value="_totpCode" Label="驗證碼 (6 位數)" Variant="Variant.Outlined" Class="mb-4"
+                          MaxLength="6" InputType="InputType.Number" />
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="VerifyMfaAsync" Disabled="@_isBusy">確認</MudButton>
+            <MudButton Variant="Variant.Text" FullWidth="true" Class="mt-2" OnClick="CancelMfa">返回登入</MudButton>
         }
 
-        <MudTextField @bind-Value="_captchaCode" Label="圖形驗證碼" Variant="Variant.Outlined" Class="mb-4" />
-
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="LoginAsync" Disabled="@_isBusy">登入</MudButton>
-
-        @if (AuthSession.RequiresPasswordChange)
-        {
-            <MudAlert Severity="Severity.Warning" Class="mt-4">密碼已超過 180 天，請先更新密碼。</MudAlert>
-        }
-
-        <MudDivider Class="my-4" />
-
-        <MudText Typo="Typo.caption">
-            預設管理員帳號：admin / Admin@123
-        </MudText>
     </MudPaper>
 </MudContainer>
 
 @code {
-    private string _username = "admin";
-    private string _password = "Admin@123";
+    private string _username = "";
+    private string _password = "";
     private string _captchaCode = "";
     private string _captchaId = "";
     private string _captchaImageBase64 = "";
     private bool _isBusy;
+
+    // MFA 第二步
+    private bool _requiresMfa;
+    private string _mfaUserId = "";
+    private string _totpCode = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -70,16 +89,33 @@
 
     private async Task LoginAsync()
     {
-        if (_isBusy)
-            return;
-
+        if (_isBusy) return;
         _isBusy = true;
         try
         {
             var result = await ApiClient.LoginAsync(_username, _password, _captchaId, _captchaCode);
-            if (result is null || string.IsNullOrWhiteSpace(result.Token))
+            if (result is null)
             {
                 Snackbar.Add("登入失敗，請確認帳密與驗證碼", Severity.Error);
+                await LoadCaptchaAsync();
+                return;
+            }
+
+            var loginMessage = string.IsNullOrWhiteSpace(result.Message)
+                ? "登入失敗，請確認帳密與驗證碼"
+                : result.Message;
+
+            if (result.RequiresMfa)
+            {
+                _mfaUserId = result.UserId;
+                _requiresMfa = true;
+                _totpCode = "";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(result.Token))
+            {
+                Snackbar.Add(loginMessage, Severity.Error);
                 await LoadCaptchaAsync();
                 return;
             }
@@ -92,5 +128,43 @@
         {
             _isBusy = false;
         }
+    }
+
+    private async Task VerifyMfaAsync()
+    {
+        if (_isBusy) return;
+        if (string.IsNullOrWhiteSpace(_totpCode) || _totpCode.Length != 6)
+        {
+            Snackbar.Add("請輸入 6 位數驗證碼", Severity.Warning);
+            return;
+        }
+
+        _isBusy = true;
+        try
+        {
+            var result = await ApiClient.VerifyMfaAsync(_mfaUserId, _totpCode);
+            if (result is null || string.IsNullOrWhiteSpace(result.Token))
+            {
+                Snackbar.Add("驗證碼錯誤，請重新輸入", Severity.Error);
+                _totpCode = "";
+                return;
+            }
+
+            await AuthSession.SetSessionAsync(result.Token, result.Username, result.DisplayName, result.Role, result.RequiresPasswordChange);
+            Snackbar.Add("登入成功", Severity.Success);
+            Navigation.NavigateTo("/");
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task CancelMfa()
+    {
+        _requiresMfa = false;
+        _mfaUserId = "";
+        _totpCode = "";
+        await LoadCaptchaAsync();
     }
 }

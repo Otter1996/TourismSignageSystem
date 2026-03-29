@@ -49,7 +49,18 @@ public class SignageRegion
     public RegionContentType ContentType { get; set; } = RegionContentType.Empty;
     public string MediaId { get; set; } = "";
     public string MediaUrl { get; set; } = "";
+    public List<string> MediaIds { get; set; } = new();
+    public List<string> MediaUrls { get; set; } = new();
     public string TextContent { get; set; } = "";
+}
+
+public class DeviceRegionContent
+{
+    public int SortOrder { get; set; }
+    public RegionContentType ContentType { get; set; } = RegionContentType.Empty;
+    public string TextContent { get; set; } = "";
+    public List<string> MediaIds { get; set; } = new();
+    public List<string> MediaUrls { get; set; } = new();
 }
 
 /// <summary>
@@ -82,6 +93,9 @@ public class DevicePlayConfig
     
     /// <summary>最後修改時間</summary>
     public DateTime LastModified { get; set; } = DateTime.Now;
+
+    /// <summary>設備專屬內容（依版型區塊排序）</summary>
+    public List<DeviceRegionContent> RegionContents { get; set; } = new();
 }
 
 /// <summary>
@@ -101,6 +115,7 @@ public class DeviceHierarchyNode
     public bool IsActive { get; set; } = true;
     public bool IsOnline { get; set; }
     public DateTime LastSeen { get; set; }
+    public List<DeviceRegionContent> RegionContents { get; set; } = new();
 }
 
 /// <summary>
@@ -112,7 +127,7 @@ public class MediaContent
     public string VisitorCenterId { get; set; } = "";
     public string Title { get; set; } = "";
     public string Url { get; set; } = "";
-    /// <summary>媒體類型：Image、Video、Text</summary>
+    /// <summary>媒體類型：Image、Video、File、Link、Text</summary>
     public string MediaType { get; set; } = "Image";
     /// <summary>播放持續時間（秒）</summary>
     public int Duration { get; set; } = 10;

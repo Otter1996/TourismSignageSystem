@@ -17,7 +17,22 @@ builder.Services.AddMudServices();
 builder.Services.AddScoped<AuthSessionService>();
 
 // 註冊 HttpClient 和 SignageApiClient
-builder.Services.AddHttpClient<SignageApiClient>();
+// 開發環境下跳過 SSL 驗證，允許自簽名證書
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddHttpClient<SignageApiClient>()
+        .ConfigureHttpClient(client => { })
+        .ConfigurePrimaryHttpMessageHandler(() =>
+        {
+            var handler = new HttpClientHandler();
+            handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+            return handler;
+        });
+}
+else
+{
+    builder.Services.AddHttpClient<SignageApiClient>();
+}
 
 // Add services to the container.
 builder.Services.AddRazorComponents()

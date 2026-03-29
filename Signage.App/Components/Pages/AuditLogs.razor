@@ -2,6 +2,7 @@
 @inject SignageApiClient ApiClient
 @inject AuthSessionService AuthSession
 @inject ISnackbar Snackbar
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-6">
@@ -18,10 +19,38 @@
         <MudPaper Class="pa-6" Elevation="2">
             <div class="d-flex align-center justify-space-between mb-4">
                 <MudText Typo="Typo.h5">操作稽核紀錄</MudText>
-                <MudButton Variant="Variant.Outlined" Color="Color.Info" OnClick="LoadAsync">重新整理</MudButton>
+                <MudChip T="string" Text="@($"共 {_logs.Count} 筆")" Color="Color.Info" Size="Size.Small" Variant="Variant.Outlined" />
             </div>
 
-            <MudTable Items="_logs" Dense="true" Hover="true" Striped="true">
+            <MudGrid Class="mb-4">
+                <MudItem xs="12" md="3">
+                    <MudDatePicker Label="起始日期 (UTC)" @bind-Date="_fromDateUtc" Clearable="true" Editable="true" />
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudDatePicker Label="結束日期 (UTC)" @bind-Date="_toDateUtc" Clearable="true" Editable="true" />
+                </MudItem>
+                <MudItem xs="12" md="2">
+                    <MudTextField T="string" Label="帳號關鍵字" @bind-Value="_usernameFilter" Clearable="true" />
+                </MudItem>
+                <MudItem xs="12" md="2">
+                    <MudTextField T="string" Label="動作關鍵字" @bind-Value="_actionFilter" Clearable="true" />
+                </MudItem>
+                <MudItem xs="12" md="2">
+                    <MudSelect T="string" Label="結果" @bind-Value="_resultFilter">
+                        <MudSelectItem T="string" Value="@("all")">全部</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("success")">成功</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("failed")">失敗</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+
+            <div class="d-flex gap-2 mb-4">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync" Disabled="_isLoading">查詢</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Secondary" OnClick="ResetFiltersAsync" Disabled="_isLoading">重設條件</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Info" OnClick="ExportCsvAsync" Disabled="_isLoading">匯出 CSV</MudButton>
+            </div>
+
+            <MudTable Items="_logs" Dense="true" Hover="true" Striped="true" Loading="_isLoading">
                 <HeaderContent>
                     <MudTh>時間(UTC)</MudTh>
                     <MudTh>帳號</MudTh>
@@ -55,7 +84,15 @@
 </MudContainer>
 
 @code {
+    private const int QueryLimit = 1000;
+
     private List<AuditLogEntry> _logs = new();
+    private bool _isLoading;
+    private DateTime? _fromDateUtc = DateTime.UtcNow.Date.AddDays(-30);
+    private DateTime? _toDateUtc = DateTime.UtcNow.Date;
+    private string _usernameFilter = string.Empty;
+    private string _actionFilter = string.Empty;
+    private string _resultFilter = "all";
 
     protected override async Task OnInitializedAsync()
     {
@@ -67,8 +104,76 @@
         if (!AuthSession.IsAuthenticated || AuthSession.Role != UserRoles.Admin)
             return;
 
-        _logs = await ApiClient.GetAuditLogsAsync();
-        if (_logs.Count == 0)
-            Snackbar.Add("目前沒有可顯示的稽核紀錄", Severity.Info);
+        _isLoading = true;
+
+        try
+        {
+            _logs = await ApiClient.GetAuditLogsAsync(BuildQuery());
+            if (_logs.Count == 0)
+                Snackbar.Add("目前沒有符合條件的稽核紀錄", Severity.Info);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        if (!AuthSession.IsAuthenticated || AuthSession.Role != UserRoles.Admin)
+            return;
+
+        _isLoading = true;
+
+        try
+        {
+            var result = await ApiClient.ExportAuditLogsCsvAsync(BuildQuery());
+            if (!result.success)
+            {
+                Snackbar.Add($"匯出失敗：{result.message}", Severity.Error);
+                return;
+            }
+
+            await JS.InvokeVoidAsync("signageDownloadBase64File", result.fileName, "text/csv;charset=utf-8", result.base64Content);
+            Snackbar.Add("CSV 匯出完成", Severity.Success);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _fromDateUtc = DateTime.UtcNow.Date.AddDays(-30);
+        _toDateUtc = DateTime.UtcNow.Date;
+        _usernameFilter = string.Empty;
+        _actionFilter = string.Empty;
+        _resultFilter = "all";
+        await LoadAsync();
+    }
+
+    private AuditLogQuery BuildQuery()
+    {
+        var fromUtc = _fromDateUtc?.Date;
+        var toUtc = _toDateUtc?.Date.AddDays(1).AddTicks(-1);
+
+        if (fromUtc.HasValue && toUtc.HasValue && fromUtc > toUtc)
+            (fromUtc, toUtc) = (toUtc, fromUtc);
+
+        return new AuditLogQuery
+        {
+            Limit = QueryLimit,
+            FromUtc = fromUtc,
+            ToUtc = toUtc,
+            Username = string.IsNullOrWhiteSpace(_usernameFilter) ? null : _usernameFilter.Trim(),
+            Action = string.IsNullOrWhiteSpace(_actionFilter) ? null : _actionFilter.Trim(),
+            Success = _resultFilter switch
+            {
+                "success" => true,
+                "failed" => false,
+                _ => null
+            }
+        };
     }
 }

@@ -6,7 +6,7 @@ using System.Text;
 namespace Signage.Server.Services;
 
 /// <summary>
-/// 電子看板數據服務（簡化版：使用內存存儲，實際應改用資料庫）
+/// 電子看板數據服務
 /// </summary>
 public class SignageDataService
 {
@@ -17,7 +17,6 @@ public class SignageDataService
     private const string PushCommandsCategory = "push-commands";
     private readonly SqliteJsonStore _store;
 
-    // 模擬數據存儲
     private List<VisitorCenter> _visitorCenters = new();
     private List<SignagePage> _signagePages = new();
     private List<MediaContent> _mediaLibrary = new();
@@ -28,12 +27,6 @@ public class SignageDataService
     {
         _store = store;
         LoadFromStore();
-
-        if (!_visitorCenters.Any() && !_signagePages.Any() && !_mediaLibrary.Any() && !_deviceStatuses.Any() && !_pushCommands.Any())
-        {
-            InitializeSampleData();
-            PersistAll();
-        }
     }
 
     // ============= 遊客中心管理 =============
@@ -239,10 +232,97 @@ public class SignageDataService
                     ScreenOrientation = d.ScreenOrientation,
                     IsActive = d.IsActive,
                     IsOnline = status?.IsOnline ?? false,
-                    LastSeen = status?.LastSeen ?? DateTime.MinValue
+                    LastSeen = status?.LastSeen ?? DateTime.MinValue,
+                    RegionContents = (d.RegionContents ?? new List<DeviceRegionContent>())
+                        .OrderBy(item => item.SortOrder)
+                        .Select(CloneDeviceRegionContent)
+                        .ToList()
                 };
             })
             .ToList();
+    }
+
+    public List<DeviceRegionContent> GetDeviceRegionContents(string centerId, int deviceNumber)
+    {
+        NormalizeCenterDevices();
+
+        var center = _visitorCenters.FirstOrDefault(c => c.Id == centerId);
+        if (center == null)
+            return new();
+
+        var device = center.Devices.FirstOrDefault(d => d.DeviceNumber == deviceNumber);
+        if (device == null)
+            return new();
+
+        return (device.RegionContents ?? new List<DeviceRegionContent>())
+            .OrderBy(item => item.SortOrder)
+            .Select(CloneDeviceRegionContent)
+            .ToList();
+    }
+
+    public bool UpdateDeviceRegionContents(string centerId, int deviceNumber, List<DeviceRegionContent> regionContents)
+    {
+        NormalizeCenterDevices();
+
+        var center = _visitorCenters.FirstOrDefault(c => c.Id == centerId);
+        if (center == null)
+            return false;
+
+        var device = center.Devices.FirstOrDefault(d => d.DeviceNumber == deviceNumber);
+        if (device == null)
+            return false;
+
+        device.RegionContents = (regionContents ?? new List<DeviceRegionContent>())
+            .OrderBy(item => item.SortOrder)
+            .Take(3)
+            .Select(CloneDeviceRegionContent)
+            .ToList();
+
+        device.LastModified = DateTime.Now;
+        center.LastModified = DateTime.Now;
+        PersistVisitorCenters();
+        return true;
+    }
+
+    public SignagePage? GetPlayPageByDevice(string deviceId)
+    {
+        NormalizeCenterDevices();
+
+        var result = _visitorCenters
+            .SelectMany(c => c.Devices, (center, device) => new { center, device })
+            .FirstOrDefault(item => item.device.DeviceId == deviceId);
+
+        if (result == null)
+            return null;
+
+        return BuildEffectivePage(result.device);
+    }
+
+    public SignagePage? GetPlayPageByDeviceNumber(string centerId, int deviceNumber)
+    {
+        NormalizeCenterDevices();
+
+        var center = _visitorCenters.FirstOrDefault(c => c.Id == centerId);
+        var device = center?.Devices?.FirstOrDefault(d => d.DeviceNumber == deviceNumber);
+
+        if (device == null)
+            return null;
+
+        return BuildEffectivePage(device);
+    }
+
+    public SignagePage? GetPlayPageByDeviceSlug(string deviceSlug)
+    {
+        NormalizeCenterDevices();
+
+        var device = _visitorCenters
+            .SelectMany(c => c.Devices)
+            .FirstOrDefault(d => string.Equals(d.DeviceSlug, deviceSlug, StringComparison.OrdinalIgnoreCase));
+
+        if (device == null)
+            return null;
+
+        return BuildEffectivePage(device);
     }
 
     /// <summary>
@@ -414,22 +494,35 @@ public class SignageDataService
     // ============= 媒體庫管理 =============
 
     /// <summary>
-    /// 取得指定中心的媒體庫
+    /// 取得全域媒體庫
+    /// </summary>
+    public List<MediaContent> GetAllMedia()
+    {
+        return _mediaLibrary
+            .OrderByDescending(m => m.UploadedAt)
+            .ToList();
+    }
+
+    /// <summary>
+    /// 取得指定中心的媒體庫（相容舊資料；新流程請改用全域媒體庫）
     /// </summary>
     public List<MediaContent> GetMediaByCenter(string centerId)
     {
-        return _mediaLibrary.Where(m => m.VisitorCenterId == centerId).ToList();
+        return _mediaLibrary
+            .Where(m => m.VisitorCenterId == centerId)
+            .OrderByDescending(m => m.UploadedAt)
+            .ToList();
     }
 
     /// <summary>
     /// 上傳媒體素材
     /// </summary>
-    public MediaContent AddMedia(string centerId, string title, string url, string mediaType, int duration = 10)
+    public MediaContent AddMedia(string title, string url, string mediaType, int duration = 10)
     {
         var media = new MediaContent
         {
             Id = Guid.NewGuid().ToString(),
-            VisitorCenterId = centerId,
+            VisitorCenterId = "",
             Title = title,
             Url = url,
             MediaType = mediaType,
@@ -505,7 +598,13 @@ public class SignageDataService
         {
             DeviceNumber = deviceNumber,
             DeviceId = device.DeviceId,
-            DeviceSlug = BuildDefaultSlug(center.Name, deviceNumber),
+            DeviceSlug = MakeUniqueSlug(
+                BuildDefaultSlug(center, deviceNumber),
+                _visitorCenters
+                    .SelectMany(item => item.Devices ?? new List<DevicePlayConfig>())
+                    .Select(item => item.DeviceSlug)
+                    .Where(item => !string.IsNullOrWhiteSpace(item))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)),
             Name = deviceName,
             ScreenOrientation = ScreenOrientation.Landscape16x9,
             IsActive = true,
@@ -607,58 +706,6 @@ public class SignageDataService
         return true;
     }
 
-    // ============= 內存測試數據初始化 =============
-
-    private void InitializeSampleData()
-    {
-        // 建立示範遊客中心
-        var center1 = CreateVisitorCenter("左營遊客中心", "高雄市左營區");
-        var center2 = CreateVisitorCenter("旗津遊客中心", "高雄市旗津區");
-        var center3 = CreateVisitorCenter("新北旅遊處", "新北市板橋區");
-
-        // 為每個中心建立預設版型
-        var page1 = CreateSignagePage(center1.Id, "三段式版型", LayoutType.TripleVertical);
-        page1.ZoneCount = 3;
-        page1.Regions = CreateRegionsFromPreset(30, 40, 30);
-        page1.Regions[0].ContentType = RegionContentType.MarqueeText;
-        page1.Regions[0].TextContent = "★ 歡迎光臨左營遊客中心 ★";
-        page1.Regions[1].ContentType = RegionContentType.Video;
-        page1.Regions[1].MediaUrl = "https://www.w3schools.com/html/mov_bbb.mp4";
-        page1.Regions[2].ContentType = RegionContentType.Image;
-        page1.Regions[2].MediaUrl = "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80";
-        page1.TopContent = page1.Regions[0].TextContent;
-        page1.MiddleContentUrl = page1.Regions[1].MediaUrl;
-        page1.BottomContentUrl = page1.Regions[2].MediaUrl;
-
-        var page2 = CreateSignagePage(center1.Id, "L型資訊版型", LayoutType.LType);
-        page2.ZoneCount = 2;
-        page2.Regions = CreateRegionsFromPreset(35, 65);
-        page2.Regions[0].ContentType = RegionContentType.MarqueeText;
-        page2.Regions[0].TextContent = "旗津景點介紹";
-        page2.Regions[1].ContentType = RegionContentType.Video;
-        page2.Regions[1].MediaUrl = "https://www.w3schools.com/html/mov_bbb.mp4";
-        page2.LeftContent = page2.Regions[0].TextContent;
-        page2.MiddleContentUrl = page2.Regions[1].MediaUrl;
-
-        ActivatePage(center1.Id, page1.Id);
-
-        // 註冊示範設備並為每個設備分配版型
-        // 左營中心：2台看板
-        RegisterDevice(center1.Id, "看板-01", "192.168.1.10");
-        RegisterDevice(center1.Id, "看板-02", "192.168.1.11");
-        
-        // 為左營中心的設備分配版型
-        AssignPageToDevice(center1.Id, 1, page1.Id);  // 設備1 → page1
-        AssignPageToDevice(center1.Id, 2, page2.Id);  // 設備2 → page2
-
-        // 旗津中心：1台看板
-        RegisterDevice(center2.Id, "看板-03", "192.168.1.12");
-
-        // 新增媒體素材
-        AddMedia(center1.Id, "宣傳影片1", "https://www.w3schools.com/html/mov_bbb.mp4", "Video", 30);
-        AddMedia(center1.Id, "景點圖片1", "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800", "Image", 10);
-    }
-
     private void LoadFromStore()
     {
         _visitorCenters = _store.LoadAll<VisitorCenter>(VisitorCentersCategory);
@@ -667,16 +714,11 @@ public class SignageDataService
         _deviceStatuses = _store.LoadAll<DeviceStatus>(DeviceStatusesCategory);
         _pushCommands = _store.LoadAll<SignagePushCommand>(PushCommandsCategory);
 
-        NormalizeCenterDevices();
-    }
+        var deviceDataChanged = NormalizeCenterDevices();
+        NormalizeMediaLibrary();
 
-    private void PersistAll()
-    {
-        PersistVisitorCenters();
-        PersistSignagePages();
-        PersistMediaLibrary();
-        PersistDeviceStatuses();
-        PersistPushCommands();
+        if (deviceDataChanged)
+            PersistVisitorCenters();
     }
 
     private void PersistVisitorCenters()
@@ -694,6 +736,17 @@ public class SignageDataService
         _store.ReplaceAll(MediaLibraryCategory, _mediaLibrary, item => item.Id);
     }
 
+    private void NormalizeMediaLibrary()
+    {
+        _mediaLibrary ??= new();
+        foreach (var media in _mediaLibrary)
+        {
+            media.Title ??= "";
+            media.Url ??= "";
+            media.MediaType = string.IsNullOrWhiteSpace(media.MediaType) ? "Image" : media.MediaType;
+        }
+    }
+
     private void PersistDeviceStatuses()
     {
         _store.ReplaceAll(DeviceStatusesCategory, _deviceStatuses, item => item.DeviceId);
@@ -704,8 +757,11 @@ public class SignageDataService
         _store.ReplaceAll(PushCommandsCategory, _pushCommands, item => item.Id);
     }
 
-    private void NormalizeCenterDevices()
+    private bool NormalizeCenterDevices()
     {
+        var changed = false;
+        var usedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var center in _visitorCenters)
         {
             center.Devices ??= new();
@@ -720,12 +776,14 @@ public class SignageDataService
                     {
                         DeviceNumber = i + 1,
                         DeviceId = deviceId,
-                        DeviceSlug = BuildDefaultSlug(center.Name, i + 1),
+                        DeviceSlug = BuildDefaultSlug(center, i + 1),
                         Name = status?.DeviceName ?? $"設備 {i + 1}",
                         AssignedPageId = center.ActivePageId,
                         IsActive = true,
                         LastModified = DateTime.Now
                     });
+
+                    changed = true;
                 }
             }
 
@@ -738,32 +796,57 @@ public class SignageDataService
             {
                 var d = center.Devices[i];
                 if (d.DeviceNumber <= 0)
+                {
                     d.DeviceNumber = i + 1;
+                    changed = true;
+                }
 
                 if (string.IsNullOrWhiteSpace(d.DeviceSlug))
-                    d.DeviceSlug = BuildDefaultSlug(center.Name, d.DeviceNumber);
+                {
+                    d.DeviceSlug = BuildDefaultSlug(center, d.DeviceNumber);
+                    changed = true;
+                }
 
                 if (string.IsNullOrWhiteSpace(d.Name))
+                {
                     d.Name = $"設備 {d.DeviceNumber}";
+                    changed = true;
+                }
 
-                d.DeviceSlug = NormalizeSlug(d.DeviceSlug);
+                var preferredSlug = NormalizeSlug(d.DeviceSlug);
+                if (preferredSlug == "device")
+                    preferredSlug = BuildDefaultSlug(center, d.DeviceNumber);
+
+                var uniqueSlug = MakeUniqueSlug(preferredSlug, usedSlugs);
+                if (!string.Equals(d.DeviceSlug, uniqueSlug, StringComparison.OrdinalIgnoreCase))
+                {
+                    d.DeviceSlug = uniqueSlug;
+                    changed = true;
+                }
             }
         }
+
+        return changed;
     }
 
-    private static string BuildDefaultSlug(string centerName, int deviceNumber)
+    private static string BuildDefaultSlug(VisitorCenter center, int deviceNumber)
     {
-        var key = NormalizeSlug(centerName);
+        var key = Slugify(center.Name, "");
         if (string.IsNullOrWhiteSpace(key))
-            key = "center";
+            key = $"center-{GetSlugSeed(center.Id)}";
 
         return $"{key}-{deviceNumber:00}";
     }
 
     private static string NormalizeSlug(string raw)
     {
+        return Slugify(raw, "device");
+    }
+
+    private static string Slugify(string raw, string fallback)
+    {
         if (string.IsNullOrWhiteSpace(raw))
-            return "device";
+            return fallback;
 
         var sb = new StringBuilder();
         var lastDash = false;
@@ -783,7 +866,34 @@ public class SignageDataService
         }
 
         var normalized = sb.ToString().Trim('-');
-        return string.IsNullOrWhiteSpace(normalized) ? "device" : normalized;
+        return string.IsNullOrWhiteSpace(normalized) ? fallback : normalized;
+    }
+
+    private static string MakeUniqueSlug(string preferredSlug, HashSet<string> usedSlugs)
+    {
+        var baseSlug = NormalizeSlug(preferredSlug);
+        var candidate = baseSlug;
+        var suffix = 2;
+
+        while (!usedSlugs.Add(candidate))
+        {
+            candidate = $"{baseSlug}-{suffix}";
+            suffix++;
+        }
+
+        return candidate;
+    }
+
+    private static string GetSlugSeed(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "000000";
+
+        var compact = new string(value.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+        if (compact.Length >= 6)
+            return compact[..6];
+
+        return compact.PadRight(6, '0');
     }
 
     private static SignagePage CloneAndNormalizePage(SignagePage page)
@@ -844,11 +954,13 @@ public class SignageDataService
         {
             region.ContentType = RegionContentType.Video;
             region.MediaUrl = page.MiddleContentUrl;
+            region.MediaUrls = new List<string> { page.MiddleContentUrl };
         }
         else if (!string.IsNullOrWhiteSpace(page.BottomContentUrl))
         {
             region.ContentType = RegionContentType.Image;
             region.MediaUrl = page.BottomContentUrl;
+            region.MediaUrls = new List<string> { page.BottomContentUrl };
         }
         else if (!string.IsNullOrWhiteSpace(page.TopContent))
         {
@@ -869,11 +981,13 @@ public class SignageDataService
         {
             regions[1].ContentType = RegionContentType.Video;
             regions[1].MediaUrl = page.MiddleContentUrl;
+            regions[1].MediaUrls = new List<string> { page.MiddleContentUrl };
         }
         else if (!string.IsNullOrWhiteSpace(page.BottomContentUrl))
         {
             regions[1].ContentType = RegionContentType.Image;
             regions[1].MediaUrl = page.BottomContentUrl;
+            regions[1].MediaUrls = new List<string> { page.BottomContentUrl };
         }
 
         return regions;
@@ -889,12 +1003,14 @@ public class SignageDataService
         {
             regions[1].ContentType = RegionContentType.Video;
             regions[1].MediaUrl = page.MiddleContentUrl;
+            regions[1].MediaUrls = new List<string> { page.MiddleContentUrl };
         }
 
         if (!string.IsNullOrWhiteSpace(page.BottomContentUrl))
         {
             regions[2].ContentType = RegionContentType.Image;
             regions[2].MediaUrl = page.BottomContentUrl;
+            regions[2].MediaUrls = new List<string> { page.BottomContentUrl };
         }
 
         return regions;
@@ -917,6 +1033,22 @@ public class SignageDataService
 
     private static SignageRegion CloneRegion(SignageRegion region)
     {
+        var mediaIds = (region.MediaIds ?? new List<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var mediaUrls = (region.MediaUrls ?? new List<string>())
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (mediaUrls.Count == 0 && !string.IsNullOrWhiteSpace(region.MediaUrl))
+            mediaUrls.Add(region.MediaUrl);
+
+        if (mediaIds.Count == 0 && !string.IsNullOrWhiteSpace(region.MediaId))
+            mediaIds.Add(region.MediaId);
+
         return new SignageRegion
         {
             Id = region.Id,
@@ -924,9 +1056,69 @@ public class SignageDataService
             SortOrder = region.SortOrder,
             HeightPercent = region.HeightPercent,
             ContentType = region.ContentType,
-            MediaId = region.MediaId,
-            MediaUrl = region.MediaUrl,
+            MediaId = mediaIds.FirstOrDefault() ?? region.MediaId,
+            MediaUrl = mediaUrls.FirstOrDefault() ?? region.MediaUrl,
+            MediaIds = mediaIds,
+            MediaUrls = mediaUrls,
             TextContent = region.TextContent
+        };
+    }
+
+    private SignagePage? BuildEffectivePage(DevicePlayConfig device)
+    {
+        if (string.IsNullOrWhiteSpace(device.AssignedPageId))
+            return null;
+
+        var basePage = _signagePages.FirstOrDefault(p => p.Id == device.AssignedPageId);
+        if (basePage == null)
+            return null;
+
+        var effectivePage = CloneAndNormalizePage(basePage);
+
+        foreach (var region in effectivePage.Regions)
+        {
+            var content = (device.RegionContents ?? new List<DeviceRegionContent>())
+                .FirstOrDefault(item => item.SortOrder == region.SortOrder);
+
+            if (content == null)
+                continue;
+
+            region.ContentType = content.ContentType;
+            region.TextContent = content.TextContent;
+            region.MediaIds = (content.MediaIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            region.MediaUrls = (content.MediaUrls ?? new List<string>())
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            region.MediaId = region.MediaIds.FirstOrDefault() ?? "";
+            region.MediaUrl = region.MediaUrls.FirstOrDefault() ?? "";
+        }
+
+        effectivePage.TopContent = effectivePage.Regions.FirstOrDefault(r => r.ContentType == RegionContentType.MarqueeText)?.TextContent ?? "";
+        effectivePage.MiddleContentUrl = effectivePage.Regions.FirstOrDefault(r => r.ContentType == RegionContentType.Video)?.MediaUrls.FirstOrDefault() ?? "";
+        effectivePage.BottomContentUrl = effectivePage.Regions.FirstOrDefault(r => r.ContentType == RegionContentType.Image)?.MediaUrls.FirstOrDefault() ?? "";
+
+        return effectivePage;
+    }
+
+    private static DeviceRegionContent CloneDeviceRegionContent(DeviceRegionContent content)
+    {
+        return new DeviceRegionContent
+        {
+            SortOrder = content.SortOrder,
+            ContentType = content.ContentType,
+            TextContent = content.TextContent,
+            MediaIds = (content.MediaIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            MediaUrls = (content.MediaUrls ?? new List<string>())
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
         };
     }
 }

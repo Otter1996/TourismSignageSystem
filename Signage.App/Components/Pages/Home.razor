@@ -7,6 +7,13 @@
 @rendermode InteractiveServer
 
 <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-6">
+    @if (!string.IsNullOrWhiteSpace(_editorScopeLabel))
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            @(_editorScopeLabel)
+        </MudAlert>
+    }
+
     @if (_isBusy)
     {
         <MudPaper Class="pa-3 mb-4" Elevation="1">
@@ -90,37 +97,9 @@
                                                      Margin="Margin.Dense"
                                                      Class="mb-3" />
 
-                                    <MudSelect T="RegionContentType" Label="內容類型" @bind-Value="region.ContentType" Variant="Variant.Outlined" Class="mb-3">
-                                        <MudSelectItem Value="@RegionContentType.Empty">空白區塊</MudSelectItem>
-                                        <MudSelectItem Value="@RegionContentType.Video">影片</MudSelectItem>
-                                        <MudSelectItem Value="@RegionContentType.Image">圖片</MudSelectItem>
-                                        <MudSelectItem Value="@RegionContentType.MarqueeText">跑馬燈文字</MudSelectItem>
-                                        <MudSelectItem Value="@RegionContentType.Clock">即時時鐘</MudSelectItem>
-                                    </MudSelect>
-
-                                    @if (region.ContentType == RegionContentType.MarqueeText)
-                                    {
-                                        <MudTextField @bind-Value="region.TextContent" Label="跑馬燈文字" Lines="2" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
-                                    }
-                                    else if (region.ContentType == RegionContentType.Image || region.ContentType == RegionContentType.Video)
-                                    {
-                                        <MudTextField Value="@GetRegionMediaSummary(region)" Label="已綁定素材" ReadOnly="true" Variant="Variant.Filled" Margin="Margin.Dense" Class="mb-2" />
-                                        <div class="drop-hint"
-                                             @ondragover:preventDefault
-                                             @ondrop:preventDefault
-                                             @ondrop="@(() => AssignDraggingMediaToRegion(region))">
-                                            將下方素材拖放到此區塊，或直接輸入 URL
-                                        </div>
-                                        <MudTextField @bind-Value="region.MediaUrl" Label="媒體 URL" Variant="Variant.Filled" Margin="Margin.Dense" Class="mt-2" />
-                                    }
-                                    else if (region.ContentType == RegionContentType.Clock)
-                                    {
-                                        <MudAlert Severity="Severity.Info" Dense="true">播放時會顯示目前系統時間。</MudAlert>
-                                    }
-                                    else
-                                    {
-                                        <MudAlert Severity="Severity.Warning" Dense="true">此區塊目前沒有指定內容。</MudAlert>
-                                    }
+                                    <MudAlert Severity="Severity.Info" Dense="true">
+                                        這裡只設定版型結構（區塊與比例）。圖片、影片、文字、時間等內容請到設備管理頁進行每台設備客製化。
+                                    </MudAlert>
                                 </MudPaper>
                             }
 
@@ -133,32 +112,6 @@
                                     <MudIcon Icon="@Icons.Material.Filled.Save" Class="mr-2" />儲存設定
                                 </MudButton>
                             </div>
-
-                            <MudDivider Class="my-4" />
-
-                            <MudText Typo="Typo.subtitle2" Class="mb-2">素材拖放區</MudText>
-                            @if (_mediaLibrary.Count == 0)
-                            {
-                                <MudAlert Severity="Severity.Info" Dense="true">目前沒有可拖放素材，可在媒體庫新增圖片或影片後回來編排。</MudAlert>
-                            }
-                            else
-                            {
-                                <div class="media-palette">
-                                    @foreach (var media in _mediaLibrary)
-                                    {
-                                        <div class="media-tile"
-                                             draggable="true"
-                                             @ondragstart="@(() => BeginMediaDrag(media.Id))"
-                                             @ondragend="EndMediaDrag">
-                                            <MudIcon Icon="@GetMediaIcon(media.MediaType)" Class="mr-2" />
-                                            <div>
-                                                <div class="media-title">@media.Title</div>
-                                                <div class="media-type">@media.MediaType</div>
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
-                            }
 
                             <MudDivider Class="my-4" />
 
@@ -181,6 +134,13 @@
 
                             <MudButton Variant="Variant.Outlined" Color="Color.Info" FullWidth="true" Class="mt-2" OnClick="CreateNewPage" Disabled="@_isBusy">
                                 <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-2" />新建版型
+                            </MudButton>
+                        }
+                        else
+                        {
+                            <MudAlert Severity="Severity.Info" Class="mb-4">尚無任何版型，請點擊下方按鈕建立第一個版型。</MudAlert>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreateNewPage" Disabled="@_isBusy">
+                                <MudIcon Icon="@Icons.Material.Filled.Add" Class="mr-2" />新建第一個版型
                             </MudButton>
                         }
                     }
@@ -206,49 +166,13 @@
                                 @foreach (var region in GetEditableRegions(page))
                                 {
                                     <div class="preview-region"
-                                         style="@GetRegionStyle(region)"
-                                         @ondragover:preventDefault
-                                         @ondrop:preventDefault
-                                         @ondrop="@(() => AssignDraggingMediaToRegion(region))">
+                                         style="@GetRegionStyle(region)">
                                         <div class="region-header">
                                             <span>@GetRegionDisplayName(region.SortOrder, page.ZoneCount)</span>
                                             <span>@region.HeightPercent.ToString("0.##")%</span>
                                         </div>
 
-                                        @switch (region.ContentType)
-                                        {
-                                            case RegionContentType.Video:
-                                                if (!string.IsNullOrWhiteSpace(region.MediaUrl))
-                                                {
-                                                    <video class="region-media" src="@region.MediaUrl" autoplay muted loop playsinline></video>
-                                                }
-                                                else
-                                                {
-                                                    <div class="region-placeholder">拖放影片素材到此區塊</div>
-                                                }
-                                                break;
-                                            case RegionContentType.Image:
-                                                if (!string.IsNullOrWhiteSpace(region.MediaUrl))
-                                                {
-                                                    <img class="region-media" src="@region.MediaUrl" alt="region media" />
-                                                }
-                                                else
-                                                {
-                                                    <div class="region-placeholder">拖放圖片素材到此區塊</div>
-                                                }
-                                                break;
-                                            case RegionContentType.MarqueeText:
-                                                <div class="region-marquee">
-                                                    <div class="region-marquee-track">@(string.IsNullOrWhiteSpace(region.TextContent) ? "請輸入跑馬燈文字" : region.TextContent)</div>
-                                                </div>
-                                                break;
-                                            case RegionContentType.Clock:
-                                                <div class="region-clock">@DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss")</div>
-                                                break;
-                                            default:
-                                                <div class="region-placeholder">空白區塊，可拖放素材或指定內容類型</div>
-                                                break;
-                                        }
+                                        <div class="region-placeholder">版型區塊（內容由設備個別設定）</div>
                                     </div>
                                 }
                             </div>
@@ -437,17 +361,34 @@
         new("100% 全螢幕", [100])
     ];
 
+    [SupplyParameterFromQuery]
+    public string? PageId { get; set; }
+
+    [SupplyParameterFromQuery]
+    public string? CenterId { get; set; }
+
+    [SupplyParameterFromQuery]
+    public int? DeviceNumber { get; set; }
+
     private List<SignagePage> _pages = new();
     private List<MediaContent> _mediaLibrary = new();
+    private List<VisitorCenter> _centers = new();
     private string _selectedPageId = "";
     private string? _draggingMediaId;
     private bool _isBusy;
     private bool _isLoadingCenterData;
     private string _busyMessage = "";
+    private string _editorScopeLabel = "";
 
     protected override async Task OnInitializedAsync()
     {
         await LoadLayoutLibraryAsync();
+    }
+
+    protected override Task OnParametersSetAsync()
+    {
+        ApplyEditorScope();
+        return Task.CompletedTask;
     }
 
     private async Task LoadLayoutLibraryAsync()
@@ -461,7 +402,8 @@
         try
         {
             _pages = await ApiClient.GetAllSignagePagesAsync();
-            _mediaLibrary = await LoadAllMediaLibraryAsync();
+            _centers = await ApiClient.GetAllVisitorCentersAsync();
+            _mediaLibrary = new();
 
             foreach (var page in _pages)
             {
@@ -469,6 +411,7 @@
             }
 
             _selectedPageId = _pages.FirstOrDefault()?.Id ?? "";
+            ApplyEditorScope();
         }
         finally
         {
@@ -478,18 +421,7 @@
 
     private async Task<List<MediaContent>> LoadAllMediaLibraryAsync()
     {
-        var centers = await ApiClient.GetAllVisitorCentersAsync();
-        var allMedia = new List<MediaContent>();
-        foreach (var center in centers)
-        {
-            var media = await ApiClient.GetMediaByCenterAsync(center.Id);
-            allMedia.AddRange(media);
-        }
-
-        return allMedia
-            .GroupBy(item => item.Id)
-            .Select(group => group.First())
-            .ToList();
+        return await ApiClient.GetAllMediaAsync();
     }
 
     private SignagePage GetCurrentPage()
@@ -646,14 +578,30 @@
         if (media == null)
             return;
 
-        region.MediaId = media.Id;
-        region.MediaUrl = media.Url;
-        region.TextContent = media.MediaType == "Text" ? media.Title : region.TextContent;
+        EnsureRegionMediaCollections(region);
+
+        if ((media.MediaType == "Video" || media.MediaType == "Image") && !string.IsNullOrWhiteSpace(media.Url))
+        {
+            if (!region.MediaIds.Contains(media.Id, StringComparer.OrdinalIgnoreCase))
+                region.MediaIds.Add(media.Id);
+
+            if (!region.MediaUrls.Contains(media.Url, StringComparer.OrdinalIgnoreCase))
+                region.MediaUrls.Add(media.Url);
+
+            region.MediaId = region.MediaIds.FirstOrDefault() ?? media.Id;
+            region.MediaUrl = region.MediaUrls.FirstOrDefault() ?? media.Url;
+        }
+
+        region.TextContent = media.MediaType == "Text" || media.MediaType == "Link"
+            ? media.Title
+            : region.TextContent;
+
         region.ContentType = media.MediaType switch
         {
             "Video" => RegionContentType.Video,
             "Image" => RegionContentType.Image,
             "Text" => RegionContentType.MarqueeText,
+            "Link" => RegionContentType.MarqueeText,
             _ => region.ContentType
         };
 
@@ -662,6 +610,11 @@
 
     private string GetRegionMediaSummary(SignageRegion region)
     {
+        EnsureRegionMediaCollections(region);
+
+        if (region.MediaUrls.Count > 0)
+            return $"已綁定 {region.MediaUrls.Count} 筆素材";
+
         if (!string.IsNullOrWhiteSpace(region.MediaId))
         {
             var media = _mediaLibrary.FirstOrDefault(item => item.Id == region.MediaId);
@@ -676,12 +629,25 @@
     {
         page.ZoneCount = Math.Clamp(page.ZoneCount <= 0 ? page.Regions.Count : page.ZoneCount, 1, 3);
         page.Regions = EnsureRegionCount(page.Regions, page.ZoneCount);
+        foreach (var region in page.Regions)
+        {
+            EnsureRegionMediaCollections(region);
+        }
         SetDerivedLayout(page);
     }
 
     private void PreparePageForPersistence(SignagePage page)
     {
         NormalizePage(page);
+        foreach (var region in page.Regions)
+        {
+            region.ContentType = RegionContentType.Empty;
+            region.TextContent = "";
+            region.MediaId = "";
+            region.MediaUrl = "";
+            region.MediaIds = new List<string>();
+            region.MediaUrls = new List<string>();
+        }
         SyncLegacyFieldsFromRegions(page);
         page.LastModified = DateTime.Now;
     }
@@ -717,13 +683,106 @@
 
     private void SyncLegacyFieldsFromRegions(SignagePage page)
     {
-        var regions = GetEditableRegions(page).ToList();
+        page.TopContent = "";
+        page.MiddleContentUrl = "";
+        page.BottomContentUrl = "";
+        page.LeftContent = "";
+        page.RightContent = "";
+    }
 
-        page.TopContent = regions.FirstOrDefault(region => region.ContentType == RegionContentType.MarqueeText)?.TextContent ?? "";
-        page.MiddleContentUrl = regions.FirstOrDefault(region => region.ContentType == RegionContentType.Video)?.MediaUrl ?? "";
-        page.BottomContentUrl = regions.FirstOrDefault(region => region.ContentType == RegionContentType.Image)?.MediaUrl ?? "";
-        page.LeftContent = regions.ElementAtOrDefault(0)?.TextContent ?? "";
-        page.RightContent = regions.ElementAtOrDefault(1)?.TextContent ?? "";
+    private void EnsureRegionMediaCollections(SignageRegion region)
+    {
+        region.MediaIds ??= new List<string>();
+        region.MediaUrls ??= new List<string>();
+
+        if (region.MediaUrls.Count == 0 && !string.IsNullOrWhiteSpace(region.MediaUrl))
+            region.MediaUrls.Add(region.MediaUrl);
+
+        if (region.MediaIds.Count == 0 && !string.IsNullOrWhiteSpace(region.MediaId))
+            region.MediaIds.Add(region.MediaId);
+
+        region.MediaId = region.MediaIds.FirstOrDefault() ?? "";
+        region.MediaUrl = region.MediaUrls.FirstOrDefault() ?? "";
+    }
+
+    private List<string> GetRegionMediaUrls(SignageRegion region)
+    {
+        EnsureRegionMediaCollections(region);
+        return region.MediaUrls;
+    }
+
+    private string GetRegionPrimaryMediaUrl(SignageRegion region)
+    {
+        EnsureRegionMediaCollections(region);
+        return region.MediaUrls.FirstOrDefault() ?? region.MediaUrl;
+    }
+
+    private string GetRegionMediaDisplayName(SignageRegion region, int index)
+    {
+        EnsureRegionMediaCollections(region);
+
+        var mediaId = region.MediaIds.ElementAtOrDefault(index);
+        if (!string.IsNullOrWhiteSpace(mediaId))
+        {
+            var media = _mediaLibrary.FirstOrDefault(item => item.Id == mediaId);
+            if (media != null)
+                return media.Title;
+        }
+
+        return region.MediaUrls.ElementAtOrDefault(index) ?? "未命名素材";
+    }
+
+    private void RemoveRegionMedia(SignageRegion region, int index)
+    {
+        EnsureRegionMediaCollections(region);
+
+        if (index < 0 || index >= region.MediaUrls.Count)
+            return;
+
+        region.MediaUrls.RemoveAt(index);
+        if (index < region.MediaIds.Count)
+            region.MediaIds.RemoveAt(index);
+
+        region.MediaId = region.MediaIds.FirstOrDefault() ?? "";
+        region.MediaUrl = region.MediaUrls.FirstOrDefault() ?? "";
+    }
+
+    private void ClearRegionMedia(SignageRegion region)
+    {
+        region.MediaIds = new List<string>();
+        region.MediaUrls = new List<string>();
+        region.MediaId = "";
+        region.MediaUrl = "";
+    }
+
+    private void ApplyEditorScope()
+    {
+        var scopeParts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(CenterId))
+        {
+            var center = _centers.FirstOrDefault(item => item.Id == CenterId);
+            scopeParts.Add($"中心：{center?.Name ?? CenterId}");
+        }
+
+        if (DeviceNumber.HasValue && DeviceNumber.Value > 0)
+        {
+            scopeParts.Add($"設備：{DeviceNumber.Value}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(PageId))
+        {
+            var matchedPage = _pages.FirstOrDefault(item => item.Id == PageId);
+            if (matchedPage != null)
+            {
+                _selectedPageId = matchedPage.Id;
+                scopeParts.Add($"版型：{matchedPage.Name}");
+            }
+        }
+
+        _editorScopeLabel = scopeParts.Count > 0
+            ? $"目前編輯範圍：{string.Join(" / ", scopeParts)}"
+            : "";
     }
 
     private static void SetDerivedLayout(SignagePage page)

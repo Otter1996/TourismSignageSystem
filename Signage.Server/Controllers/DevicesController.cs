@@ -74,6 +74,58 @@ public class DevicesController : ControllerBase
         return Ok(new { message = "設備設定已更新" });
     }
 
+    [HttpGet("center/{centerId}/device/{deviceNumber}/content")]
+    [Authorize(Roles = "Admin,Operator")]
+    public ActionResult<List<DeviceRegionContent>> GetDeviceContent(string centerId, int deviceNumber)
+    {
+        return Ok(_dataService.GetDeviceRegionContents(centerId, deviceNumber));
+    }
+
+    [HttpPut("center/{centerId}/device/{deviceNumber}/content")]
+    [Authorize(Roles = "Admin,Operator")]
+    public ActionResult UpdateDeviceContent(string centerId, int deviceNumber, [FromBody] UpdateDeviceContentRequest request)
+    {
+        var success = _dataService.UpdateDeviceRegionContents(centerId, deviceNumber, request.RegionContents ?? new());
+        if (!success)
+            return NotFound(new { message = "設備不存在" });
+
+        _securityService.AddAudit(User.Identity?.Name ?? "unknown", "Device.UpdateContent", $"{centerId}:{deviceNumber}", true, "更新設備內容", HttpContext.Connection.RemoteIpAddress?.ToString() ?? "", Request.Headers.UserAgent.ToString());
+        return Ok(new { message = "設備內容已更新" });
+    }
+
+    [HttpGet("play/{deviceSlug}")]
+    [AllowAnonymous]
+    public ActionResult<SignagePage> GetPlayBySlug(string deviceSlug)
+    {
+        var page = _dataService.GetPlayPageByDeviceSlug(deviceSlug);
+        if (page == null)
+            return NotFound(new { message = "找不到設備或尚未配置版型" });
+
+        return Ok(page);
+    }
+
+    [HttpGet("{deviceId}/play")]
+    [AllowAnonymous]
+    public ActionResult<SignagePage> GetPlayByDeviceId(string deviceId)
+    {
+        var page = _dataService.GetPlayPageByDevice(deviceId);
+        if (page == null)
+            return NotFound(new { message = "找不到設備或尚未配置版型" });
+
+        return Ok(page);
+    }
+
+    [HttpGet("center/{centerId}/device/{deviceNumber}/play")]
+    [AllowAnonymous]
+    public ActionResult<SignagePage> GetPlayByCenterAndNumber(string centerId, int deviceNumber)
+    {
+        var page = _dataService.GetPlayPageByDeviceNumber(centerId, deviceNumber);
+        if (page == null)
+            return NotFound(new { message = "找不到設備或尚未配置版型" });
+
+        return Ok(page);
+    }
+
     /// <summary>
     /// 註冊新設備
     /// </summary>
@@ -143,4 +195,9 @@ public class UpdateDeviceConfigRequest
     public ScreenOrientation? ScreenOrientation { get; set; }
     public bool? IsActive { get; set; }
     public string? DeviceSlug { get; set; }
+}
+
+public class UpdateDeviceContentRequest
+{
+    public List<DeviceRegionContent>? RegionContents { get; set; }
 }
